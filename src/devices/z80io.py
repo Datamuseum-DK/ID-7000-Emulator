@@ -95,7 +95,7 @@ class IO:
     def handle_io_out(self, outaddr, outval):
         outaddr = outaddr & 0xff
         if outaddr in self.outcb:
-            if outval != 0x07:
+            if outval != 0x07 and outaddr != 0x60:
                 udptx.send(f'{outaddr:02x} out - {outval:02x} ({misc.ascii(outval)})')
             self.outcb[outaddr](outval)
         else:
@@ -117,6 +117,8 @@ class IO:
         return val
 
 
+    # Seems to be display or terminal as the RAM error message is
+    # printed here
     def handle_60_out(self, val):
         if misc.isprintable(val):
             self.buf60 += chr(val)
@@ -124,11 +126,11 @@ class IO:
             if len(self.buf60):
                 udptx.send(self.buf60)
                 self.buf60 = ''
-        print(f'out 0x60: {val:3} {misc.ascii(val)}')
+        #print(f'out 0x60: {val:3} {misc.ascii(val)}')
 
 
     def handle_61_in(self):
-        val = 0x2 # ready ?
+        val = 0x1 # ready ?
         #print(f'in  0x61: {val:3} {misc.ascii(val)}')
         return val
 

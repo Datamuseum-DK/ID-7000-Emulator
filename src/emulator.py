@@ -12,7 +12,7 @@ import utils.udptx as udp
 from timeit import default_timer as timer
 
 '''
-    Q1 Emulator
+    ID-7000 Emulator
 '''
 
 udptx = udp.UdpTx(port=5009, timestamp=True, nl=True)
@@ -23,16 +23,15 @@ class Emulator:
         assert value < 256
         assert address < 65536
         if address < 0x1C00: #
-            #print(f"write to ROM (0x{address:04x})")
-            #print(f"write to ROM (0x{address:04x}) error, exiting ...")
             print(f"write to ROM (0x{address:04x}), val {value} pc {self.cpu.m.pc:04x} warning, no effect ...")
             #self.cpu.exit()
             #self.cpu.m.memory[address] = 0xAA
             return
 
-        if 0x7000 < address < 0x7004:
-            print('FAKE INVALID WRITE TO RAM')
-            newval = (value + 1) & 0xff
+        if 0x6000 < address < 0x6030:
+            print(f'FAKE INVALID WRITE TO RAM (address {address})')
+            #newval = (value + 1) & 0xff
+            newval = 0xfd
             self.cpu.m.memory[address] = newval
             return
 
@@ -93,7 +92,7 @@ class Emulator:
                 print(f'{ch}')
 
             if ch == 0x222b:       # opt-b -> hexdump
-                self.cpu.mem.hexdump(0x4200, 0x0400)
+                self.cpu.mem.hexdump(0x2000, 0x8000)
             elif ch == 8224: # opt-t
                 args.decode = not args.decode
                 if args.decode:
