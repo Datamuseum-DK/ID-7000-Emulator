@@ -8,8 +8,8 @@ import sphinx_rtd_theme
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
-project = 'Q1-Lite Emulator'
-copyright = '2024, Morten Jagd Christensen'
+project = 'ID-7000 Emulator'
+copyright = '2025, Morten Jagd Christensen'
 author = 'Morten Jagd Christensen'
 
 # -- General configuration ---------------------------------------------------
