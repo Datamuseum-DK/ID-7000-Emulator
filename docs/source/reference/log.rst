@@ -16,6 +16,7 @@ resonstructed from memory and emails
 Emulator is running. Log entry in danish copied from an email to DDF mailinglist.
 
 .. code-block:: text
+
   Jeg har kikket i bitarkivet for ID-7000, fundet nogle prom images, nogle datablade, gættet lidt og
   valgt et (forhåbentlig) passende image at starte med.
 
