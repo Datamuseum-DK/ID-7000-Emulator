@@ -17,3 +17,5 @@ from ROMs.
         :caption: ID-7000
         :maxdepth: 3
         :hidden:
+
+        reference/log.rst
