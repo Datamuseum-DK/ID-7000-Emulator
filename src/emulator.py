@@ -27,13 +27,13 @@ class Emulator:
             #self.cpu.exit()
             #self.cpu.m.memory[address] = 0xAA
             return
-
-        if 0x6000 < address < 0x6030:
-            print(f'FAKE INVALID WRITE TO RAM (address {address})')
-            #newval = (value + 1) & 0xff
-            newval = 0xfd
-            self.cpu.m.memory[address] = newval
-            return
+        if self.args.ramerr:
+            if 0x6000 < address < 0x6030:
+                print(f'FAKE INVALID WRITE TO RAM (address {address})')
+                #newval = (value + 1) & 0xff
+                newval = 0xfd
+                self.cpu.m.memory[address] = newval
+                return
 
         self.cpu.m.memory[address] = value
 
@@ -60,6 +60,11 @@ class Emulator:
         self.cpu.m.set_write_callback(self.on_write)
         self.cpu.m.set_input_callback(self.io.handle_io_in)
         self.cpu.m.set_output_callback(self.io.handle_io_out)
+
+        if self.args.romerr:
+            print('simulate ROM error')
+            for i in range(200):
+                self.cpu.m.memory[0x1000 + i] = 42
 
         self.stoppc = 0x1ffff
         if "stop" in self.prgobj:
@@ -218,6 +223,9 @@ if __name__ == "__main__":
     parser.add_argument("--program", help = "name of program to load, see programs.py",
                         type = str, default = "id7ka")
 
+
+    parser.add_argument("--ramerr", help = "simulate RAM error", action='store_true')
+    parser.add_argument("--romerr", help = "simulate ROM error", action='store_true')
 
     args = parser.parse_args()
     if args.stopafter == -1:
