@@ -108,3 +108,34 @@ Emulator is running. Log entry in danish copied from an email to DDF mailinglist
   Inden jeg kører videre ud af en tangent skal jeg lige høre om der er nogen der allerede har
   opnået lignende resultater, om dette har interesse,  og om der er nogen der ved lidt mere
   om systemet?
+
+
+
+2025 03 20
+----------
+
+Github repo created and the project was populated with the latest files.
+
+
+
+2025 03 25
+----------
+
+Added two flags --ramerr and --romerr used to simulate RAM and ROM errors.
+These cause printing of error messages to what is presumably
+a terminal. Here is the output (using utils/logio) from two runs:
+
+.. code-block:: text
+
+  0.009: fe out - 00 (.)
+  0.009: 61 out - 03 (.)
+  0.009: 61 out - 53 (S)
+  0.009: 61 out - fa (.)
+  0.009: 61 out - 25 (%)
+  0.841: ** ERROR IN RAM MEMORY DETECTED IN HEX AREA ** ERROR IN PROM MEMORY DETECTED **
+
+  0.009: fe out - 00 (.)
+  0.009: 61 out - 53 (S)
+  0.009: 61 out - fa (.)
+  0.010: 61 out - 25 (%)
+  4.241: ** ERROR IN RAM MEMORY DETECTED IN HEX AREA 6000-7000
