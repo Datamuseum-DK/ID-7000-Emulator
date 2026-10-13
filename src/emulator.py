@@ -72,7 +72,7 @@ class Emulator:
 
         self.icount = 0
         if self.args.hexdump:
-            self.cpu.mem.hexdump(0x2000, 0xFFFF - 0x2000) # dump RAM part of memory
+            self.cpu.mem.hexdump(0x4000, 0xFFFF - 0x4000) # dump RAM part of memory
 
     ints = {0: 0x0000, 2: 0x0010, 3:0x0018, 4:0x0020, 6:0x0030, 7:0x0038 }
 
@@ -97,7 +97,7 @@ class Emulator:
                 print(f'{ch}')
 
             if ch == 0x222b:       # opt-b -> hexdump
-                self.cpu.mem.hexdump(0x2000, 0x8000)
+                self.cpu.mem.hexdump(0x4000, 0x8000)
             elif ch == 8224: # opt-t
                 args.decode = not args.decode
                 if args.decode:
@@ -169,9 +169,6 @@ class Emulator:
             if self.icount % args.dumpfreq == 0 and args.hexdump:
                 cpu.mem.hexdump(0x2000, 0x10000 - 0x2000) # dump RAM part of memory
 
-            # Debugging PL/1 programs (experimental)
-            # if cpu.m.pc > 0x1880:
-            #     self.pl1_debug()
 
             # main cpu emulation step
             cpu.step(self.steps) # actual emulation of the next n instruction(s)
@@ -189,9 +186,6 @@ class Emulator:
                 io.verbose = True
                 cpu.info()
 
-            # Handle (JDC) program halt
-            if pc ==0x4cb and args.program == 'jdc':
-                print("<STOP>")
 
             # Handle occasional keyboard input
             if (self.icount % 1000) == 0: # int_disabled check?
