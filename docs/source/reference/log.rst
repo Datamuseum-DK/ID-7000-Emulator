@@ -316,32 +316,40 @@ Once the final missing out() callback was added I notices a flurry of out() comm
 Buffering up the characters sent on out (0x60) and printing the buffer on the 
 value 10 (ascii NL) I got
 
+.. code-block:: text
+
     ID-7000 *READY* (200UT/SIM) VERSION 01.02.83
+
 
 This text is 'printed' on all 12 suspected terminal IO channels.
 
 This is a major finding so far. It establishes that 12 'terminal lines' or something
 equivalent are supported and that their io addresses are
 
-0x60 T1 data in/out
-0x61 T1 status/control
+.. code-block:: text
+  0x60 T1 data in/out
+  0x61 T1 status/control
+  0x62 T2 data in/out
+  0x63 T2 status/control
+  ...
+  0x76 T12 data in/out
+  0x77 T12 status/control
 
-0x62 T2 data in/out
-0x63 T2 status/control
-
-...
-
-0x76 T12 data in/out
-0x77 T12 status/control
 
 Then from the IRQ and timer module manual I have
 
-0xfe Interrupt config and status
-0xff Timer related (eventhough for now it looks like the in() value is unused/ignored)
+.. code-block:: text
+
+  0xfe Interrupt config and status
+  0xff Timer related (eventhough for now it looks like the in() value is unused/ignored)
+
 
 Which only leaves the following io addresses unknown 
 
-0x53
+.. code-block:: text
 
-0xa1
+  0x53
+  0xa1
+
+
 
