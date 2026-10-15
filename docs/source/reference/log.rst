@@ -327,6 +327,7 @@ This is a major finding so far. It establishes that 12 'terminal lines' or somet
 equivalent are supported and that their io addresses are
 
 .. code-block:: text
+  
   0x60 T1 data in/out
   0x61 T1 status/control
   0x62 T2 data in/out
