@@ -16,7 +16,8 @@ class IO:
         self.m = m
         self.incb = {}
         self.outcb = {}
-        self.status = 0x00
+        self.status = 0x01
+        self.dummyin = 0x41 # 'A'
         self.keyin = 0
 
         self.buf60=''
@@ -28,46 +29,58 @@ class IO:
         self.register_in_cb( 0x61, self.handle_61_in)
         self.register_out_cb(0x61, self.handle_61_out)
         self.register_in_cb( 0x62, self.handle_62_in)
+        self.register_out_cb(0x62, self.handle_62_out)
         self.register_out_cb(0x63, self.handle_63_out)
         self.register_in_cb( 0x63, self.handle_63_in)
 
         self.register_in_cb( 0x64, self.handle_64_in)
+        self.register_out_cb(0x64, self.handle_64_out)
         self.register_in_cb( 0x65, self.handle_65_in)
         self.register_out_cb(0x65, self.handle_65_out)
         self.register_in_cb( 0x66, self.handle_66_in)
+        self.register_out_cb(0x66, self.handle_66_out)
         self.register_in_cb( 0x67, self.handle_67_in)
         self.register_out_cb(0x67, self.handle_67_out)
 
         self.register_in_cb( 0x68, self.handle_68_in)
+        self.register_out_cb(0x68, self.handle_68_out)
         self.register_in_cb( 0x69, self.handle_69_in)
         self.register_out_cb(0x69, self.handle_69_out)
         self.register_in_cb( 0x6a, self.handle_6a_in)
+        self.register_out_cb(0x6a, self.handle_6a_out)
         self.register_in_cb( 0x6b, self.handle_6b_in)
         self.register_out_cb(0x6b, self.handle_6b_out)
 
         self.register_in_cb( 0x6c, self.handle_6c_in)
+        self.register_out_cb(0x6c, self.handle_6c_out)
         self.register_in_cb( 0x6d, self.handle_6d_in)
         self.register_out_cb(0x6d, self.handle_6d_out)
         self.register_in_cb( 0x6e, self.handle_6e_in)
+        self.register_out_cb(0x6e, self.handle_6e_out)
         self.register_in_cb( 0x6f, self.handle_6f_in)
         self.register_out_cb(0x6f, self.handle_6f_out)
 
         self.register_in_cb( 0x70, self.handle_70_in)
+        self.register_out_cb(0x70, self.handle_70_out)
         self.register_in_cb( 0x71, self.handle_71_in)
         self.register_out_cb(0x71, self.handle_71_out)
         self.register_in_cb( 0x72, self.handle_72_in)
+        self.register_out_cb(0x72, self.handle_72_out)
         self.register_in_cb( 0x73, self.handle_73_in)
         self.register_out_cb(0x73, self.handle_73_out)
 
         self.register_in_cb( 0x74, self.handle_74_in)
+        self.register_out_cb(0x74, self.handle_74_out)
         self.register_in_cb( 0x75, self.handle_75_in)
         self.register_out_cb(0x75, self.handle_75_out)
         self.register_in_cb( 0x76, self.handle_76_in)
+        self.register_out_cb(0x76, self.handle_76_out)
         self.register_in_cb( 0x77, self.handle_77_in)
         self.register_out_cb(0x77, self.handle_77_out)
 
         self.register_out_cb(0xa1, self.handle_a1_out)
         self.register_out_cb(0xfe, self.handle_fe_out)
+        self.register_in_cb(0xff, self.handle_ff_in)
 
 
 
@@ -112,25 +125,27 @@ class IO:
 
 
     def handle_60_in(self):
-        val = self.keyin
-        print(f'in  0x60: {val:3} {misc.ascii(val)}')
+        #val = self.keyin
+        val = self.dummyin
+        #print(f'in  0x60: {val:3} {misc.ascii(val)}')
         return val
 
 
     # Seems to be display or terminal as the RAM error message is
     # printed here
     def handle_60_out(self, val):
+        #print(f'out 0x60: {val:3} {misc.ascii(val)}')
+        if (val == 10 or val== 7) and len(self.buf60):
+            print('out 0x60:', self.buf60)
+            self.buf60 = ''
+            return
         if misc.isprintable(val):
             self.buf60 += chr(val)
-        else:
-            if len(self.buf60):
-                udptx.send(self.buf60)
-                self.buf60 = ''
-        #print(f'out 0x60: {val:3} {misc.ascii(val)}')
+
 
 
     def handle_61_in(self):
-        val = 0x1 # ready ?
+        val = 0x01 # ready ?
         #print(f'in  0x61: {val:3} {misc.ascii(val)}')
         return val
 
@@ -140,9 +155,13 @@ class IO:
 
 
     def handle_62_in(self):
-        val = self.status
+        val = self.dummyin + 1
         print(f'in  0x62: {val:3} {misc.ascii(val)}')
         return val
+
+    def handle_62_out(self, val):
+        print(f'out 0x62: {val:3} {misc.ascii(val)}')
+        pass
 
 
     def handle_63_in(self):
@@ -156,9 +175,13 @@ class IO:
 
 
     def handle_64_in(self):
-        val = self.status
+        val = self.dummyin + 2
         print(f'in  0x64: {val:3} {misc.ascii(val)}')
         return val
+
+    def handle_64_out(self, val):
+        print(f'out 0x64: {val:3} {misc.ascii(val)}')
+        pass
 
 
     def handle_65_in(self):
@@ -173,9 +196,13 @@ class IO:
 
 
     def handle_66_in(self):
-        val = self.status
+        val = self.dummyin + 3
         print(f'in  0x66: {val:3} {misc.ascii(val)}')
         return val
+
+    def handle_66_out(self, val):
+        print(f'out 0x66: {val:3} {misc.ascii(val)}')
+        pass
 
 
     def handle_67_out(self, val):
@@ -190,9 +217,14 @@ class IO:
 
 
     def handle_68_in(self):
-        val = self.status
+        val = self.dummyin + 4
         print(f'in  0x68: {val:3} {misc.ascii(val)}')
         return val
+
+    def handle_68_out(self, val):
+        print(f'out 0x68: {val:3} {misc.ascii(val)}')
+        pass
+
 
     def handle_69_in(self):
         val = self.status
@@ -206,9 +238,13 @@ class IO:
 
 
     def handle_6a_in(self):
-        val = self.status
+        val = self.dummyin + 5
         print(f'in  0x6a: {val:3} {misc.ascii(val)}')
         return val
+
+    def handle_6a_out(self, val):
+        print(f'out 0x6a: {val:3} {misc.ascii(val)}')
+        pass
 
 
     def handle_6b_in(self):
@@ -223,9 +259,14 @@ class IO:
 
 
     def handle_6c_in(self):
-        val = self.status
+        val = self.dummyin + 6
         print(f'in  0x6c: {val:3} {misc.ascii(val)}')
         return val
+
+    def handle_6c_out(self, val):
+        print(f'out 0x6c: {val:3} {misc.ascii(val)}')
+        pass
+
 
     def handle_6d_in(self):
         val = self.status
@@ -239,9 +280,14 @@ class IO:
 
 
     def handle_6e_in(self):
-        val = self.status
+        val = self.dummyin + 7
         print(f'in  0x6e: {val:3} {misc.ascii(val)}')
         return val
+
+    def handle_6e_out(self, val):
+        print(f'out 0x6e: {val:3} {misc.ascii(val)}')
+        pass
+
 
     def handle_6f_in(self):
         val = self.status
@@ -254,9 +300,14 @@ class IO:
 
 
     def handle_70_in(self):
-        val = self.status
+        val = self.dummyin + 8
         print(f'in  0x70: {val:3} {misc.ascii(val)}')
-        return val
+        return val\
+
+    def handle_70_out(self, val):
+        print(f'out 0x70: {val:3} {misc.ascii(val)}')
+        pass
+
 
     def handle_71_in(self):
         val = self.status
@@ -269,9 +320,14 @@ class IO:
 
 
     def handle_72_in(self):
-        val = self.status
+        val = self.dummyin + 9
         print(f'in  0x72: {val:3} {misc.ascii(val)}')
         return val
+
+    def handle_72_out(self, val):
+        print(f'out 0x72: {val:3} {misc.ascii(val)}')
+        pass
+
 
     def handle_73_in(self):
         val = self.status
@@ -284,9 +340,14 @@ class IO:
 
 
     def handle_74_in(self):
-        val = self.status
+        val = self.dummyin + 10
         print(f'in  0x74: {val:3} {misc.ascii(val)}')
         return val
+
+    def handle_74_out(self, val):
+        print(f'out 0x74: {val:3} {misc.ascii(val)}')
+        pass
+
 
     def handle_75_in(self):
         val = self.status
@@ -294,14 +355,19 @@ class IO:
         return val
 
     def handle_75_out(self, val):
-        #print(f'out 0x75: {val:3} {misc.ascii(val)}')
+        print(f'out 0x75: {val:3} {misc.ascii(val)}')
         pass
 
 
     def handle_76_in(self):
-        val = self.status
+        val = self.dummyin + 11
         print(f'in  0x76: {val:3} {misc.ascii(val)}')
         return val
+
+    def handle_76_out(self, val):
+        print(f'out 0x76: {val:3} {misc.ascii(val)}')
+        pass
+
 
     def handle_77_in(self):
         val = self.status
@@ -322,3 +388,9 @@ class IO:
     def handle_fe_out(self, val):
         print(f'out 0xfe: {val:3} {misc.ascii(val)}')
         pass
+
+    #
+    def handle_ff_in(self):
+        val = 0xda
+        print(f'in  0xff: {val:3} {misc.ascii(val)}')
+        return val

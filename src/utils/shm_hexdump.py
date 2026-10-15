@@ -29,7 +29,7 @@ def main(args):
             if args.once:
                 break
             count += 1
-            time.sleep(2)
+            time.sleep(1)
 
     except:
         pass

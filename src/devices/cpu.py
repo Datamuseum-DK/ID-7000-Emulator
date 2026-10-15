@@ -16,6 +16,8 @@ class Cpu:
         self.program = program
         self.e = z80
         self.m = z80.Z80Machine()
+        self.m.mark_addrs(0x0000, 65536, z80.Z80Machine.READ_MARK)
+        self.m.mark_addrs(0x0000, 65536, z80.Z80Machine.WRITE_MARK)
         self.b = z80.Z80InstrBuilder()
         self.mem = memory.Memory(self.m)
         self.fill = 0xfd
@@ -54,17 +56,17 @@ class Cpu:
 
 
     def getinst(self):
+        pc = self.m.pc
         try:
-            instr = self.b.build_instr(self.m.pc,
-                bytes(self.m.memory[self.m.pc:self.m.pc + Cpu.MAX_INSTR_SIZE]))
+            instr, sz = self.b.build_instr(pc,
+                bytes(self.m.memory[pc:pc + Cpu.MAX_INSTR_SIZE]))
             instr_str = f"{instr}"
             # Get and verbalise the instruction bytes.
-            instr_bytes = bytes(self.m.memory[instr.addr:instr.addr + instr.size])
+            instr_bytes = bytes(self.m.memory[pc:pc + sz])
             instr_bytes_str = ' '.join(f'{b:02x}' for b in instr_bytes)
             return instr_str, instr_bytes, instr_bytes_str
         except Exception as e:
             print('exception: build_instr() failed')
-            pc = self.m.pc
             mem = self.mem
             b1 = mem.getu8(pc)
             b2 = mem.getu8(pc+1)

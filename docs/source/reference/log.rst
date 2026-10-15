@@ -142,6 +142,27 @@ a terminal. Here is the output (using utils/logio) from two runs:
 
 
 
+2026 10 13
+----------
+Been playing around with the use of shared memory as a convenient 
+way of live debugging various address ranges of the 64k address 
+space. Did a proof of concept but couldn't get it to work.
+
+
+2026 10 15
+----------
+
+It turns out that there was a new handling of read/write callbacks
+in the emulator. Now I have to register the address space that is
+used in the callback. So after the emulator update nothing worked.
+
+I found the correct spells and now it works again. Luckily, during 
+the hunt for why I couldn't trigger ROM and RAM errors anymore I
+added a lot of annotations of interesting functionality.
+
+And as a result my shared memory debug now works!
+
+
 2026 10 15
 ----------
 
@@ -266,4 +287,61 @@ perhaps.
   a2f0 87 ce ff ce 85 ce 84 00 00 04 00 00 81 ce 00 ce  ................
   a300 7f ce 00 00 7d ce 7c ce 7b 61 61 61 61 61 61 61  ....}.|.{aaaaaaa
   a310 61 61 61 61 61 ce 74 ce 73 ce 72 ce 71 ce 70 ce  aaaaa.t.s.r.q.p.
+
+
+2026 10 15
+----------
+
+A brief visit at Datamuseum where I took some photos of the boards installed
+in their ID-7000.
+
+While here I tried to create some fake interrupts. First I tried INT6 at 
+address 0x30 which I thought was terminal input (could still be the case).
+But that didn't trigger any visible changes in the parts of RAM I was running
+shmem_hexdump from.
+
+Then I tried another one (INT3 at address 0x18) hoping that it could be a
+timer interrupt. I guessed this based on the code using in (0xff) an
+address used (according to the documentation) for interrupts and timers.
+
+So I faked an INT3 by the keyboard command opt-h and noticed watched memory
+address 0x429b (see disassembly for RST3) for the expected decrement in that 
+address.
+
+Calling INT3 three times crashed the emulator because of missing implementations 
+of various out() callbacks in z80io.py which were then successively added.
+
+Once the final missing out() callback was added I notices a flurry of out() commands.
+
+Buffering up the characters sent on out (0x60) and printing the buffer on the 
+value 10 (ascii NL) I got
+
+    ID-7000 *READY* (200UT/SIM) VERSION 01.02.83
+
+This text is 'printed' on all 12 suspected terminal IO channels.
+
+This is a major finding so far. It establishes that 12 'terminal lines' or something
+equivalent are supported and that their io addresses are
+
+0x60 T1 data in/out
+0x61 T1 status/control
+
+0x62 T2 data in/out
+0x63 T2 status/control
+
+...
+
+0x76 T12 data in/out
+0x77 T12 status/control
+
+Then from the IRQ and timer module manual I have
+
+0xfe Interrupt config and status
+0xff Timer related (eventhough for now it looks like the in() value is unused/ignored)
+
+Which only leaves the following io addresses unknown 
+
+0x53
+
+0xa1
 

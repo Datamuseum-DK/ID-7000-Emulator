@@ -1,9 +1,14 @@
+from multiprocessing import shared_memory
+
+
 """Memory utilities used on top of Korarev's z80 emulator"""
 
 class Memory():
 
     def __init__(self, m):
-        self.m = m.memory
+        self.mem = m.memory
+        self.sz = len(m.memory)
+        self.shm = shared_memory.SharedMemory(name='id7k_shm', create=False, size=65536, track=False)
         self.verbose = True
 
 
@@ -14,8 +19,8 @@ class Memory():
 
     def clear(self, val: int):
         # Clear memory (set to val)
-        for i, _ in enumerate(self.m):
-            self.m[i] = val
+        for i in range(self.sz):
+            self.writeu8(i, val)
 
 
     def loader(self, program : dict) -> int:
@@ -32,38 +37,11 @@ class Memory():
         return pc
 
 
-    def hexdump(self, address, length):
-        nullpatt = "fd " * 16
-        self.print(f"########### HEXDUMP 0x{address:x} - 0x{address+length:x} ####################################")
-        hexline = f"{address:04x} "
-        char = ""
-        count = 0
-        prevempty = False
-        for i in range(length):
-            byte  = self.m[address + i]
-            hexline += f"{byte:02x} "
-            if 32 <= byte < 122:
-                char += chr(byte)
-            else:
-                char += "."
-            count += 1
-            if count == 16:
-                if hexline[5:] != nullpatt:
-                    self.print(f'{hexline} {char}')
-                    prevempty = False
-                else:
-                    if prevempty is False:
-                        self.print('....')
-                        prevempty = True
-                hexline = f"{address +i+1:04x} "
-                char = ""
-                count = 0
-        self.print("########### HEXDUMP END #################################################")
-
-
+    # This should be the only place we reference self.mem and shm for writes
     def writeu8(self, addr: int, val: int):
         assert 0 <= val <= 255
-        self.m[addr] = val
+        self.mem[addr] = val
+        self.shm.buf[addr] = val
 
     def writeu16(self, addr: int, val: int):
         hi = val >> 8
@@ -71,10 +49,10 @@ class Memory():
         self.writeu8(addr  , lo)
         self.writeu8(addr+1, hi)
 
-
+    # This should be the only place to referenve mem for reads
     def getu8(self, address: int) -> int:
         # Get byte from memory
-        val = self.m[address]
+        val = self.mem[address]
         assert 0 <= val <= 255
         return val
 
@@ -97,14 +75,14 @@ class Memory():
             block = list(fh.read())
             assert len(block) + address < 65535
             for i, d in enumerate(block):
-                self.m[address + i] = d
+                self.writeu8(address +i, d)
             print(f'loaded {len(block)} bytes from {file} at address {address:04x}h')
 
 
     def _loaddata(self, data: list, address: int):
         # Helper code to load a list of bytes into a specified address
         for i, d in enumerate(data):
-            self.m[address+i] = d
+            self.writeu8(address+i, d)
         print(f'loaded {len(data)} bytes from list at address {address:04x}h')
 
 
