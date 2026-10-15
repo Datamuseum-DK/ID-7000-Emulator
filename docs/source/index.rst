@@ -18,5 +18,5 @@ from ROMs.
         :maxdepth: 3
         :hidden:
 
-        reference/annotate.rst
-        reference/log.rst
+        reference/annotate
+        reference/log
