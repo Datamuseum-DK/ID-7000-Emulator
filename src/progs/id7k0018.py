@@ -1,4 +1,4 @@
-
+import devices.z80io as io
 ### From
 
 
@@ -8,6 +8,7 @@ id7ka = {
     "data": [
         ["file", "roms/ID7K0018/board5_eproms_0_to_6.bin", 0x0000]
     ],
+    "io" : io,
     "funcs" : {
     },
     "pois" : {
@@ -149,17 +150,18 @@ id7ka = {
         [0x08b9, 0x0e36, 'unexplored'],
         [0x0e37, 0x0e94, 'RAM check report? + ...'],
         [0x0e95, 0x0ec4, 'print RAM check error'],
-        [0x0ec5, 0x0f6b, 'ASCII TEXT prom and ram errors'],
+        [0x0ec5, 0x0f6b, 'ASCII TEXT prom and ram errors', 'ascii'],
         [0x0f6c, 0x0f6e, 'OS start? SP=4053'],
         [0x0f6f, 0x0f83, 'copy ROM @ 0x1138 to RAM @ 0xa18a'],
         [0x0f84, 0x0f8f, 'clear RAM at 0x422a'],
         [0x0f90, 0x1060, 'unexplored'],
         [0x1061, 0x106b, 'copy AID-700 *READY* to (de)'],
-        [0x106c, 0x14ff, 'unexplored'],
+        [0x106c, 0x10d6, 'unexplored'],
+        [0x10d7, 0x1106, 'AID-7000 *READY*', 'ascii'],
+        [0x1107, 0x14ff, 'unexplored'],
         [0x1500, 0x169e, 'print?'],
-        [0x169f, 0x18cf, 'ASCII TEXT'],
+        [0x169f, 0x18cf, 'ASCII TEXT', 'ascii'],
         [0x18cf, 0x1a05, 'unexplored'],
         [0x1a06, 0x1a2f, 'unknown subroutine']
-    ],
-        "pl1" : {}
+    ]
 }

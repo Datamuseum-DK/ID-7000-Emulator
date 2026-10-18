@@ -9,14 +9,35 @@ import match
 import progs.programs as prg
 
 
+def hexdump(mem, start, end):
+    while end - start > 16:
+        a = ' '.join([f'{mem.getu8(x):02x}' for x in range(start, start+16)])
+        b = ''.join([chr(mem.getu8(x)) if 31 < mem.getu8(x) < 127 else '.' for x in range(start, start+16)])
+        print(f'{start:04x}', a, ' ', b)
+        start += 16
+
+    a = ' '.join([f'{mem.getu8(x):02x}' for x in range(start, end)])
+    b = ''.join([chr(mem.getu8(x)) if 31 < mem.getu8(x) < 127 else '.' for x in range(start, end)])
+    print(f'{start:04x}',a, ' ', b)
+
+
 def disassemble(args, ranges):
     prgobj = prg.proglist[args.program]
     c = cpu.Cpu(prgobj)
     c.reset()
 
-    for start, end, text in ranges:
+    for x in ranges:
+        start = x[0]
+        end = x[1]
+        text = x[2]
+
         print(f'\n;{text}')
         c.m.pc = start
+        if len(x) ==4:
+            hexdump(c.mem, start, end)
+            c.m.pc = end
+            continue
+
         while True:
             # Decode the instruction.
             inst_str, ibytes, bytes_str = c.getinst()

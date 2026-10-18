@@ -16,71 +16,21 @@ class IO:
         self.m = m
         self.incb = {}
         self.outcb = {}
-        self.status = 0x01
-        self.dummyin = 0x41 # 'A'
+
         self.keyin = 0
 
-        self.buf60=''
+        self.uartcount    = 12
+        self.uartbase     = 0x60
+        self.uartend      = self.uartbase + self.uartcount * 2
+        self.uart_dummyin = 0x00 # NUL
+        self.uart_status  = 0x01 # ready ?
+        self.uartbuf      = [ '' for x in range(self.uartcount) ]
 
         self.register_out_cb(0x53, self.handle_53_out)
 
-        self.register_in_cb( 0x60, self.handle_60_in)
-        self.register_out_cb(0x60, self.handle_60_out)
-        self.register_in_cb( 0x61, self.handle_61_in)
-        self.register_out_cb(0x61, self.handle_61_out)
-        self.register_in_cb( 0x62, self.handle_62_in)
-        self.register_out_cb(0x62, self.handle_62_out)
-        self.register_out_cb(0x63, self.handle_63_out)
-        self.register_in_cb( 0x63, self.handle_63_in)
-
-        self.register_in_cb( 0x64, self.handle_64_in)
-        self.register_out_cb(0x64, self.handle_64_out)
-        self.register_in_cb( 0x65, self.handle_65_in)
-        self.register_out_cb(0x65, self.handle_65_out)
-        self.register_in_cb( 0x66, self.handle_66_in)
-        self.register_out_cb(0x66, self.handle_66_out)
-        self.register_in_cb( 0x67, self.handle_67_in)
-        self.register_out_cb(0x67, self.handle_67_out)
-
-        self.register_in_cb( 0x68, self.handle_68_in)
-        self.register_out_cb(0x68, self.handle_68_out)
-        self.register_in_cb( 0x69, self.handle_69_in)
-        self.register_out_cb(0x69, self.handle_69_out)
-        self.register_in_cb( 0x6a, self.handle_6a_in)
-        self.register_out_cb(0x6a, self.handle_6a_out)
-        self.register_in_cb( 0x6b, self.handle_6b_in)
-        self.register_out_cb(0x6b, self.handle_6b_out)
-
-        self.register_in_cb( 0x6c, self.handle_6c_in)
-        self.register_out_cb(0x6c, self.handle_6c_out)
-        self.register_in_cb( 0x6d, self.handle_6d_in)
-        self.register_out_cb(0x6d, self.handle_6d_out)
-        self.register_in_cb( 0x6e, self.handle_6e_in)
-        self.register_out_cb(0x6e, self.handle_6e_out)
-        self.register_in_cb( 0x6f, self.handle_6f_in)
-        self.register_out_cb(0x6f, self.handle_6f_out)
-
-        self.register_in_cb( 0x70, self.handle_70_in)
-        self.register_out_cb(0x70, self.handle_70_out)
-        self.register_in_cb( 0x71, self.handle_71_in)
-        self.register_out_cb(0x71, self.handle_71_out)
-        self.register_in_cb( 0x72, self.handle_72_in)
-        self.register_out_cb(0x72, self.handle_72_out)
-        self.register_in_cb( 0x73, self.handle_73_in)
-        self.register_out_cb(0x73, self.handle_73_out)
-
-        self.register_in_cb( 0x74, self.handle_74_in)
-        self.register_out_cb(0x74, self.handle_74_out)
-        self.register_in_cb( 0x75, self.handle_75_in)
-        self.register_out_cb(0x75, self.handle_75_out)
-        self.register_in_cb( 0x76, self.handle_76_in)
-        self.register_out_cb(0x76, self.handle_76_out)
-        self.register_in_cb( 0x77, self.handle_77_in)
-        self.register_out_cb(0x77, self.handle_77_out)
-
         self.register_out_cb(0xa1, self.handle_a1_out)
         self.register_out_cb(0xfe, self.handle_fe_out)
-        self.register_in_cb(0xff, self.handle_ff_in)
+        self.register_in_cb( 0xff, self.handle_ff_in)
 
 
 
@@ -89,12 +39,20 @@ class IO:
     def register_out_cb(self, outaddr: int, outfunc):
         self.outcb[outaddr] = outfunc
 
+
     def register_in_cb(self, inaddr: int, infunc):
         self.incb[inaddr] = infunc
 
+    #
+    ###
+    #
     def handle_io_in(self, value) -> int:
         #reg = value >> 8
         inaddr = value & 0xFF
+
+        if self.uartbase <= inaddr < self.uartend:
+            return self.handle_uart_in(inaddr)
+        
         if inaddr in self.incb:
             return self.incb[inaddr]()
 
@@ -104,9 +62,16 @@ class IO:
         sys.exit()
         return 0
 
-
+    #
+    ###
+    #
     def handle_io_out(self, outaddr, outval):
         outaddr = outaddr & 0xff
+
+        if self.uartbase <= outaddr < self.uartend:
+            self.handle_uart_out(outaddr, outval)
+            return
+
         if outaddr in self.outcb:
             if outval != 0x07 and outaddr != 0x60:
                 udptx.send(f'{outaddr:02x} out - {outval:02x} ({misc.ascii(outval)})')
@@ -116,267 +81,53 @@ class IO:
             print(msg)
             sys.exit()
 
+    ### UART IO
+    def handle_uart_in(self, ioaddr):
+        
+        if ioaddr & 0x1: # odd ioaddrs = status
+            #print(f'in(0x{ioaddr:02x}) - status')
+            return self.uart_status
+        else:            # even ioaddrs = data in
+            self.uart_dummyin = self.keyin
+            print(f'in(0x{ioaddr:02x}) - data in')
+            return self.uart_dummyin
 
-    ### IO Handling functions
+
+    def handle_uart_out(self, ioaddr, val):
+        #print(f'0x{ioaddr:02x}, val')
+        if ioaddr & 0x1:
+            self.uart_control_out(ioaddr, val)
+        else:
+            self.uart_data_out(ioaddr, val)
+
+
+    def uart_data_out(self, ioaddr, val):
+        uart_index = (ioaddr - self.uartbase)//2
+
+        if val == 0: # NUL is ignored
+            return   
+        if val == 7: # BELL is ignored - for now
+            return
+        
+        if 31 < val < 127: # printable ascii
+            self.uartbuf[uart_index] += chr(val)
+        else:
+            self.uartbuf[uart_index] += f'({val})'
+
+        if val == 10: # NL
+            print(f'UART out: 0x{ioaddr:02x}', self.uartbuf[uart_index])
+            self.uartbuf[uart_index] = ''
+            return
+       
+
+    def uart_control_out(self, ioaddr, val):
+        pass
+
+
+    ### Non UART IO Handling functions
 
     def handle_53_out(self, val):
         print(f'out 0x53: {val:3} {misc.ascii(val)}')
-        pass
-
-
-    def handle_60_in(self):
-        #val = self.keyin
-        val = self.dummyin
-        #print(f'in  0x60: {val:3} {misc.ascii(val)}')
-        return val
-
-
-    # Seems to be display or terminal as the RAM error message is
-    # printed here
-    def handle_60_out(self, val):
-        #print(f'out 0x60: {val:3} {misc.ascii(val)}')
-        if (val == 10 or val== 7) and len(self.buf60):
-            print('out 0x60:', self.buf60)
-            self.buf60 = ''
-            return
-        if misc.isprintable(val):
-            self.buf60 += chr(val)
-
-
-
-    def handle_61_in(self):
-        val = 0x01 # ready ?
-        #print(f'in  0x61: {val:3} {misc.ascii(val)}')
-        return val
-
-    def handle_61_out(self, val):
-        print(f'out 0x61: {val:3} {misc.ascii(val)}')
-        pass
-
-
-    def handle_62_in(self):
-        val = self.dummyin + 1
-        print(f'in  0x62: {val:3} {misc.ascii(val)}')
-        return val
-
-    def handle_62_out(self, val):
-        print(f'out 0x62: {val:3} {misc.ascii(val)}')
-        pass
-
-
-    def handle_63_in(self):
-        val = self.status
-        print(f'in  0x63: {val:3} {misc.ascii(val)}')
-        return val
-
-    def handle_63_out(self, val):
-        print(f'out 0x63: {val:3} {misc.ascii(val)}')
-        pass
-
-
-    def handle_64_in(self):
-        val = self.dummyin + 2
-        print(f'in  0x64: {val:3} {misc.ascii(val)}')
-        return val
-
-    def handle_64_out(self, val):
-        print(f'out 0x64: {val:3} {misc.ascii(val)}')
-        pass
-
-
-    def handle_65_in(self):
-        val = self.status
-        print(f'in  0x65: {val:3} {misc.ascii(val)}')
-        return val
-
-
-    def handle_65_out(self, val):
-        print(f'out 0x65: {val:3} {misc.ascii(val)}')
-        pass
-
-
-    def handle_66_in(self):
-        val = self.dummyin + 3
-        print(f'in  0x66: {val:3} {misc.ascii(val)}')
-        return val
-
-    def handle_66_out(self, val):
-        print(f'out 0x66: {val:3} {misc.ascii(val)}')
-        pass
-
-
-    def handle_67_out(self, val):
-        print(f'out 0x67: {val:3} {misc.ascii(val)}')
-        pass
-
-
-    def handle_67_in(self):
-        val = self.status
-        print(f'in  0x67: {val:3} {misc.ascii(val)}')
-        return val
-
-
-    def handle_68_in(self):
-        val = self.dummyin + 4
-        print(f'in  0x68: {val:3} {misc.ascii(val)}')
-        return val
-
-    def handle_68_out(self, val):
-        print(f'out 0x68: {val:3} {misc.ascii(val)}')
-        pass
-
-
-    def handle_69_in(self):
-        val = self.status
-        print(f'in  0x69: {val:3} {misc.ascii(val)}')
-        return val
-
-
-    def handle_69_out(self, val):
-        print(f'out 0x69: {val:3} {misc.ascii(val)}')
-        pass
-
-
-    def handle_6a_in(self):
-        val = self.dummyin + 5
-        print(f'in  0x6a: {val:3} {misc.ascii(val)}')
-        return val
-
-    def handle_6a_out(self, val):
-        print(f'out 0x6a: {val:3} {misc.ascii(val)}')
-        pass
-
-
-    def handle_6b_in(self):
-        val = self.status
-        print(f'in  0x6b: {val:3} {misc.ascii(val)}')
-        return val
-
-
-    def handle_6b_out(self, val):
-        print(f'out 0x6b: {val:3} {misc.ascii(val)}')
-        pass
-
-
-    def handle_6c_in(self):
-        val = self.dummyin + 6
-        print(f'in  0x6c: {val:3} {misc.ascii(val)}')
-        return val
-
-    def handle_6c_out(self, val):
-        print(f'out 0x6c: {val:3} {misc.ascii(val)}')
-        pass
-
-
-    def handle_6d_in(self):
-        val = self.status
-        print(f'in  0x6d: {val:3} {misc.ascii(val)}')
-        return val
-
-
-    def handle_6d_out(self, val):
-        print(f'out 0x6d: {val:3} {misc.ascii(val)}')
-        pass
-
-
-    def handle_6e_in(self):
-        val = self.dummyin + 7
-        print(f'in  0x6e: {val:3} {misc.ascii(val)}')
-        return val
-
-    def handle_6e_out(self, val):
-        print(f'out 0x6e: {val:3} {misc.ascii(val)}')
-        pass
-
-
-    def handle_6f_in(self):
-        val = self.status
-        print(f'in  0x6f: {val:3} {misc.ascii(val)}')
-        return val
-
-    def handle_6f_out(self, val):
-        print(f'out 0x6f: {val:3} {misc.ascii(val)}')
-        pass
-
-
-    def handle_70_in(self):
-        val = self.dummyin + 8
-        print(f'in  0x70: {val:3} {misc.ascii(val)}')
-        return val\
-
-    def handle_70_out(self, val):
-        print(f'out 0x70: {val:3} {misc.ascii(val)}')
-        pass
-
-
-    def handle_71_in(self):
-        val = self.status
-        print(f'in  0x71: {val:3} {misc.ascii(val)}')
-        return val
-
-    def handle_71_out(self, val):
-        print(f'out 0x71: {val:3} {misc.ascii(val)}')
-        pass
-
-
-    def handle_72_in(self):
-        val = self.dummyin + 9
-        print(f'in  0x72: {val:3} {misc.ascii(val)}')
-        return val
-
-    def handle_72_out(self, val):
-        print(f'out 0x72: {val:3} {misc.ascii(val)}')
-        pass
-
-
-    def handle_73_in(self):
-        val = self.status
-        print(f'in  0x73: {val:3} {misc.ascii(val)}')
-        return val
-
-    def handle_73_out(self, val):
-        print(f'out 0x73: {val:3} {misc.ascii(val)}')
-        pass
-
-
-    def handle_74_in(self):
-        val = self.dummyin + 10
-        print(f'in  0x74: {val:3} {misc.ascii(val)}')
-        return val
-
-    def handle_74_out(self, val):
-        print(f'out 0x74: {val:3} {misc.ascii(val)}')
-        pass
-
-
-    def handle_75_in(self):
-        val = self.status
-        print(f'in  0x75: {val:3} {misc.ascii(val)}')
-        return val
-
-    def handle_75_out(self, val):
-        print(f'out 0x75: {val:3} {misc.ascii(val)}')
-        pass
-
-
-    def handle_76_in(self):
-        val = self.dummyin + 11
-        print(f'in  0x76: {val:3} {misc.ascii(val)}')
-        return val
-
-    def handle_76_out(self, val):
-        print(f'out 0x76: {val:3} {misc.ascii(val)}')
-        pass
-
-
-    def handle_77_in(self):
-        val = self.status
-        print(f'in  0x77: {val:3} {misc.ascii(val)}')
-        return val
-
-
-    def handle_77_out(self, val):
-        print(f'out 0x77: {val:3} {misc.ascii(val)}')
         pass
 
 

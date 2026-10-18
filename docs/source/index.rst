@@ -20,3 +20,4 @@ from ROMs.
 
         reference/annotate
         reference/log
+        claude

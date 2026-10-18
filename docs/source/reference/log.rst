@@ -152,6 +152,9 @@ space. Did a proof of concept but couldn't get it to work.
 2026 10 15
 ----------
 
+emulator read/write callbacks
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
 It turns out that there was a new handling of read/write callbacks
 in the emulator. Now I have to register the address space that is
 used in the callback. So after the emulator update nothing worked.
@@ -163,8 +166,8 @@ added a lot of annotations of interesting functionality.
 And as a result my shared memory debug now works!
 
 
-2026 10 15
-----------
+Initialised RAM areas
+^^^^^^^^^^^^^^^^^^^^^
 
 After a bit of a renewed interest I managed to extract the 'active' part of 
 RAM after initial setup following RAM and ROM tests.
@@ -173,9 +176,9 @@ At this stage the CPU is halted asfar as I can tell and is awaiting some
 relevant interrupt in order to do anything. This is to be investigated next
 perhaps.
 
-
-
 .. code-block:: text
+
+  excluding ROM section from 0x0000 to 0x1a30
 
   4000 03 30 f9 41 00 ff fc 02 fb ff fa 00 f9 ff f8 ff  .0.A............
 
@@ -289,8 +292,8 @@ perhaps.
   a310 61 61 61 61 61 ce 74 ce 73 ce 72 ce 71 ce 70 ce  aaaaa.t.s.r.q.p.
 
 
-2026 10 15
-----------
+INTx attempts
+^^^^^^^^^^^^^
 
 A brief visit at Datamuseum where I took some photos of the boards installed
 in their ID-7000.
@@ -345,12 +348,23 @@ Then from the IRQ and timer module manual I have
   0xff Timer related (eventhough for now it looks like the in() value is unused/ignored)
 
 
-Which only leaves the following io addresses unknown 
+Which only leaves the following io addresses unknown (so far)
 
 .. code-block:: text
 
   0x53
   0xa1
 
+
+2026 10 18
+----------
+
+New approach taken: upload ROMs to Google AI and Claude and see what that can do.
+
+Essentially by parsing the ROMs both quickly figured out the same as I have spent days on.
+
+I then proceeded to use Claude to write a python based emulator.
+
+More about this later ...
 
 

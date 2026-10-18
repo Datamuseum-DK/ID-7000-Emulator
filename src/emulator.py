@@ -4,8 +4,6 @@ import sys
 import argparse
 import devices.cpu as c
 import devices.kbd as kbd
-import match
-import devices.z80io as z80io
 import progs.programs as prg
 import utils.misc as misc
 import utils.udptx as udp
@@ -49,7 +47,7 @@ class Emulator:
         self.defaultsteps = 1
         self.steps = self.defaultsteps
 
-        self.io = z80io.IO(self.cpu.m)
+        self.io = self.prgobj["io"].IO(self.cpu.m)
 
         self.key = kbd.Key()
         self.kc = kbd.KeyboardCodes()
@@ -91,6 +89,7 @@ class Emulator:
             ch = ord(self.key.getch())
             if misc.isprintable(ch):
                 print(f'{chr(ch)}')
+                self.interrupt(6,ch)
             else:
                 print(f'{ch}')
 
