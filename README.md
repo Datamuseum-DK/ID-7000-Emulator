@@ -4,9 +4,7 @@ DDE ID-7000 emulator
 
 This is the repository for an ID-7000 emulator.
 
-There is currently no documentation for this project. However,
-the structure and methodologies used here are identical to
-what what used for the Q1 emulator for which quite a lot of
-documentation exist.
+Documentation, including logbook, reverse engineering notes
+and annotated disassembly listings can be found here:
 
-Please see https://q1-lite-emulator.readthedocs.io/ for now.
+https://id-7000-emulator.readthedocs.io/en/latest/index.html#
