@@ -2,10 +2,6 @@
 ID-7000 Board 5 ROM: Reverse Engineering Notes
 =====================================================
 
-.. contents:: Contents
-   :local:
-   :depth: 2
-
 .. note::
 
    These notes record an analysis session on a ROM image from an old Danish
