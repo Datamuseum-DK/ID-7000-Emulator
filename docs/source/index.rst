@@ -30,3 +30,9 @@ from ROMs.
 
     id7000_sps/info
 
+
+.. toctree::
+    :maxdepth: 3
+    :caption: Emulators
+
+    emulators/emulators
