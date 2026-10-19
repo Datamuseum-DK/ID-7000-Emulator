@@ -1,6 +1,6 @@
 
-Annotated disassembly
-=====================
+Annotated disassembly (Claude)
+==============================
 
 From a Claude session on 2025 10 19
 

@@ -1,6 +1,6 @@
 
-Annotated disassembly
-=====================
+Annotated disassembly (manual)
+==============================
 
 From **disassembly.py -a** on 2025 10 15
 
