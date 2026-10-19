@@ -13,8 +13,8 @@ from ROMs.
 
   DDE ID7000
 
+
     .. toctree::
-        :caption: 
         :maxdepth: 3
         :hidden:
 
