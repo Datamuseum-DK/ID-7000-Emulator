@@ -1,5 +1,5 @@
 ========================
-Rev. Eng. Notes - Claude
+Reveng. notes - Claude
 ========================
 
 .. note::
