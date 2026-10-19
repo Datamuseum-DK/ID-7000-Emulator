@@ -21,6 +21,7 @@ from ROMs.
     id7000_a/log
     id7000_a/annotate
     id7000_a/claude_reveng
+    id7000_a/claude_peripheral_init
     id7000_a/claude_id7000_rom
 
 .. toctree::
