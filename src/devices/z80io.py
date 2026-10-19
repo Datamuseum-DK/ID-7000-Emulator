@@ -127,12 +127,12 @@ class IO:
     ### Non UART IO Handling functions
 
     def handle_53_out(self, val):
-        print(f'out 0x53: {val:3} {misc.ascii(val)}')
+        print(f'out 0x53: 0x{val:02x} ({val:3}) {misc.ascii(val)}')
         pass
 
 
     def handle_a1_out(self, val):
-        print(f'out 0xa1: {val:3} {misc.ascii(val)}')
+        print(f'out 0xa1: 0x{val:02x} ({val:3}) {misc.ascii(val)}')
         pass
 
 

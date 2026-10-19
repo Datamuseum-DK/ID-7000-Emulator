@@ -14,10 +14,20 @@ from ROMs.
   DDE ID7000
 
     .. toctree::
-        :caption: ID-7000
+        :caption: 
         :maxdepth: 3
         :hidden:
 
-        reference/annotate
-        reference/log
-        claude
+        id7k/info
+        id7000_a/log
+        id7000_a/annotate
+        id7000_a/claude_reveng
+        id7000_a/claude_id7000_rom.asm
+
+    .. toctree::
+        :caption: SPS ROM
+        :maxdepth: 3
+        :hidden:
+
+        id7000_sps/info
+

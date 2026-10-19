@@ -1,0 +1,3975 @@
+
+Annotated disassembly
+=====================
+
+From a Claude session on 2025 10 19
+
+.. code-block:: text
+
+        ; ===========================================================================
+        ; ID-7000  board 5  EPROM 0-6  --  annotated 8080 disassembly
+        ; Source image : board5_eproms_0_to_6.bin (7168 bytes, load address 0000H)
+        ; CPU          : Intel 8080.   Firmware: "200UT/SIM" terminal concentrator
+        ;                (12 async user channels + 1 synchronous link to a CDC Cyber host)
+        ; ===========================================================================
+        ;
+        ; Legend (flag column after the address):
+        ;    *   executed at least once in the Python emulator runs
+        ;        statically reachable by following jumps/calls/vectors, but not executed
+        ;    ?   not reached by any trace: linear-sweep guess (may be data or indirect code)
+        ; Names in the form Lxxxx are auto labels; names without that prefix are
+        ; routines/data identified during analysis. Everything is INFERRED from the
+        ; firmware and emulator behaviour; nothing was checked against hardware manuals.
+        ;
+        ; ----- memory map -------------------------------------------------------
+        ;   0000-1BFF  ROM (7 x 1 KB EPROMs).  1A30 = checksum byte of 0000-1A2F
+        ;   4000-BFFF  RAM (self-test range)
+        ;   4000-42xx  scheduler / task data, timers, per-channel flag tables
+        ;   42D2-A189  message buffer pool;  A18A-A2AA  channel/buffer descriptors
+        ;   A2D2-A31x  Cyber-link receive/transmit state
+        ;
+        ; ----- I/O map ----------------------------------------------------------
+        ;   50-53  8255 PPI   (A=data out, B=status in, C=control lines, 53=control)
+        ;   60-77  12 x 8251 USART, data on even port, control/status on odd port
+        ;   A0/A1  8251 in synchronous mode (SYN=16H): link to the Cyber host
+        ;   FE     system control latch      FF  timer tick acknowledge (read)
+        ;
+        ; ----- interrupts ---------------------------------------------------------
+        ;   RST2 sync RX   RST3 timer tick   RST4 sync TX   RST6 async RX
+        ;   (RST1 and RST5 are EI;RET stubs, RST7 restarts the system)
+        ;
+        ; ----- equates ----------------------------------------------------------
+        PPI_A          EQU  50H
+        PPI_B          EQU  51H
+        PPI_C          EQU  52H
+        PPI_CTL        EQU  53H
+        UART0_DATA     EQU  60H
+        UART0_CTL      EQU  61H
+        UART1_DATA     EQU  62H
+        UART1_CTL      EQU  63H
+        UART2_DATA     EQU  64H
+        UART2_CTL      EQU  65H
+        UART3_DATA     EQU  66H
+        UART3_CTL      EQU  67H
+        UART4_DATA     EQU  68H
+        UART4_CTL      EQU  69H
+        UART5_DATA     EQU  6AH
+        UART5_CTL      EQU  6BH
+        UART6_DATA     EQU  6CH
+        UART6_CTL      EQU  6DH
+        UART7_DATA     EQU  6EH
+        UART7_CTL      EQU  6FH
+        UART8_DATA     EQU  70H
+        UART8_CTL      EQU  71H
+        UART9_DATA     EQU  72H
+        UART9_CTL      EQU  73H
+        UART10_DATA    EQU  74H
+        UART10_CTL     EQU  75H
+        UART11_DATA    EQU  76H
+        UART11_CTL     EQU  77H
+        SYNC_DATA      EQU  A0H
+        SYNC_CTL       EQU  A1H
+        SYSCTL         EQU  FEH
+        TICK_ACK       EQU  FFH
+        TIMESLICE      EQU  4000H
+        CUR_TASK       EQU  4002H
+        INIT_BLOCK     EQU  41F9H
+        CHTAB_422B     EQU  422BH
+        CHTAB_423B     EQU  423BH
+        CHTAB_424B     EQU  424BH
+        CHTAB_425B     EQU  425BH
+        CHTAB_426B     EQU  426BH
+        CHTAB_427B     EQU  427BH
+        CHTAB_428B     EQU  428BH
+        LINK_TMO_LO    EQU  429BH
+        LINK_TMO_HI    EQU  429CH
+        LINK_DOWN      EQU  429DH
+        BUFPOOL_LO     EQU  42D2H
+        CHSTATE_A18B   EQU  A18BH
+        CHSTATE_A235   EQU  A235H
+        CHMAP_A2AD     EQU  A2ADH
+        POLL_ADDR      EQU  A2D2H
+        RX_STATE       EQU  A2F2H
+        RX_LRC         EQU  A2F3H
+        RX_ADDR        EQU  A2F4H
+        RX_DEV         EQU  A2F5H
+        RX_CTL         EQU  A2F6H
+        RX_BUFPTR      EQU  A2F7H
+        TX_STATE       EQU  A2F9H
+        TX_BUFPTR      EQU  A2FAH
+        TX_LRC         EQU  A2FCH
+        POLL_CHAN      EQU  A2FDH
+        TX_TRAIL_CNT   EQU  A319H
+        SOH            EQU  01H  ; start of header
+        ETX            EQU  03H  ; end of text
+        ENQ            EQU  05H  ; poll
+        ACK            EQU  06H  ; acknowledge
+        SYN            EQU  16H  ; sync / idle fill
+        ESC            EQU  1BH  ; escape (ESC A = display attribute bracket, ESC B etc. = host message trailers)
+                ORG  0000H
+
+        ;============================================================================
+        ; 0000-003F  RESET AND INTERRUPT VECTORS
+        ;   RST n vectors are 8 bytes apart; each stub is DI/JMP or EI/RET.
+        ;============================================================================
+
+        ;----------------------------------------------------------------------
+        ; reset  (0000H)
+        ;   Reset vector: disable interrupts, run boot/self-test at 0DA0h.
+        ;----------------------------------------------------------------------
+        reset:
+        0000 * F3         DI
+        0001 * C3 A0 0D   JMP boot
+        0004            DB   76H x 4  ; padding (HLT)
+
+        ;----------------------------------------------------------------------
+        ; rst1  (0008H)
+        ;   RST 1: unused (EI; RET).
+        ;----------------------------------------------------------------------
+        rst1:
+        0008   FB         EI
+        0009   C9         RET
+        000A            DB   76H x 6  ; padding (HLT)
+
+        ;----------------------------------------------------------------------
+        ; rst2  (0010H)
+        ;   RST 2: sync line (Cyber link) RECEIVE interrupt -> sync_rx_isr.
+        ;----------------------------------------------------------------------
+        rst2:
+        0010 * C3 5B 00   JMP sync_rx_isr
+        0013            DB   76H x 5  ; padding (HLT)
+
+        ;----------------------------------------------------------------------
+        ; rst3  (0018H)
+        ;   RST 3: timer tick -> timer_isr.
+        ;----------------------------------------------------------------------
+        rst3:
+        0018 * C3 60 07   JMP timer_isr
+        001B            DB   76H x 5  ; padding (HLT)
+
+        ;----------------------------------------------------------------------
+        ; rst4  (0020H)
+        ;   RST 4: sync line TRANSMIT interrupt -> sync_tx_isr.
+        ;----------------------------------------------------------------------
+        rst4:
+        0020 * C3 0B 02   JMP sync_tx_isr
+        0023            DB   76H x 5  ; padding (HLT)
+
+        ;----------------------------------------------------------------------
+        ; rst5  (0028H)
+        ;   RST 5: unused (EI; RET).
+        ;----------------------------------------------------------------------
+        rst5:
+        0028   FB         EI
+        0029   C9         RET
+        002A            DB   76H x 6  ; padding (HLT)
+
+        ;----------------------------------------------------------------------
+        ; rst6  (0030H)
+        ;   RST 6: async channel RECEIVE interrupt -> async_rx_isr.
+        ;----------------------------------------------------------------------
+        rst6:
+        0030 * C3 80 08   JMP async_rx_isr
+        0033            DB   76H x 5  ; padding (HLT)
+
+        ;----------------------------------------------------------------------
+        ; rst7  (0038H)
+        ;   RST 7: restarts the system (jumps to boot).
+        ;----------------------------------------------------------------------
+        rst7:
+        0038   C3 A0 0D   JMP boot
+        003B            DB   76H x 5  ; padding (HLT)
+
+        ;============================================================================
+        ; 0040-01D5  CYBER LINK: SYNC RECEIVE (RST 2)
+        ;   Frame: SYN SYN SYN SOH addr dev ctl [data] ETX LRC.  State in RX_STATE (FFH idle,
+        ;   0=addr 1=dev 2=ctl 3=ETX after ENQ 4=data 5=LRC after data 6=LRC after ENQ).
+        ;   RX_LRC starts at FEH after SOH and is XORed with every following byte;
+        ;   a frame is good when (RX_LRC before the LRC byte) AND 7FH == LRC.
+        ;============================================================================
+
+        ;----------------------------------------------------------------------
+        ; sync_rx_reset  (0040H)
+        ;   Reset the Cyber link receiver: RX_STATE := FFH (idle); if the 8251
+        ;   status shows parity/overrun/framing error (AND 38H) re-enter hunt
+        ;   mode (A1H <- 96H); sets bit 2 of SYSCTL.
+        ;----------------------------------------------------------------------
+        sync_rx_reset:
+        0040   F5         PUSH PSW
+        0041   E5         PUSH H
+        0042   21 F2 A2   LXI H,RX_STATE
+        0045   36 FF      MVI M,FFH
+        0047   DB A1      IN SYNC_CTL
+        0049   E6 38      ANI 38H
+        004B   CA 52 00   JZ L0052
+        004E   3E 96      MVI A,96H
+        0050   D3 A1      OUT SYNC_CTL               ; 8251: command: EH ER RxE DTR (hunt)
+        L0052:
+        0052   DB FE      IN SYSCTL
+        0054   F6 04      ORI 04H
+        0056   D3 FE      OUT SYSCTL
+        0058   E1         POP H
+        0059   F1         POP PSW
+        005A   C9         RET
+
+        ;----------------------------------------------------------------------
+        ; sync_rx_isr  (005BH)
+        ;   Cyber link receive ISR (RST 2). Reads status (A1h) and data (A0h);
+        ;   runs the frame state machine in RX_STATE.
+        ;----------------------------------------------------------------------
+        sync_rx_isr:
+        005B * F5         PUSH PSW
+        005C * DB A1      IN SYNC_CTL                ; status: after two RRC the carry is RxRDY (bit 1)
+        005E * 0F         RRC
+        005F * 0F         RRC
+        0060 * D2 97 00   JNC L0097                  ; no data ready: spurious, just return
+        0063 * E5         PUSH H
+        0064 * D5         PUSH D
+        0065 * C5         PUSH B
+        0066 * DB A0      IN SYNC_DATA
+        0068 * 47         MOV B,A
+        0069 * DB A1      IN SYNC_CTL
+        006B * E6 38      ANI 38H                    ; 8251 error flags PE/OE/FE
+        006D * C2 87 00   JNZ sync_rx_error
+        0070 * 21 F2 A2   LXI H,RX_STATE
+        0073 * 7E         MOV A,M                    ; A := RX_STATE
+        0074 * FE 07      CPI 07H
+        0076 * CA 7E 00   JZ L007E
+        0079 * FE 05      CPI 05H
+        007B * F2 9A 00   JP sync_rx_dispatch
+        L007E:
+        007E * 78         MOV A,B
+        007F * FE 16      CPI 16H                    ; SYN fill is ignored in the idle/early states
+        0081 * C2 9A 00   JNZ sync_rx_dispatch
+        0084 * C3 94 00   JMP L0094
+
+        ;----------------------------------------------------------------------
+        ; sync_rx_error  (0087H)
+        ;   Framing/parity/overrun error or invalid byte: reset receiver and
+        ;   discard partial buffer.
+        ;----------------------------------------------------------------------
+        sync_rx_error:
+        0087   CD 40 00   CALL sync_rx_reset
+        008A   2A F7 A2   LHLD RX_BUFPTR
+        008D   7D         MOV A,L
+        008E   B4         ORA H
+        008F   CA 94 00   JZ L0094
+        0092   36 FF      MVI M,FFH
+        L0094:
+        0094 * C1         POP B
+        0095 * D1         POP D
+        0096 * E1         POP H
+        L0097:
+        0097 * F1         POP PSW
+        0098 * FB         EI
+        0099 * C9         RET
+
+        ;----------------------------------------------------------------------
+        ; sync_rx_dispatch  (009AH)
+        ;   Per-state dispatch. All bytes after SOH are XORed into RX_LRC first.
+        ;   SYN fill is ignored in the idle states.
+        ;----------------------------------------------------------------------
+        sync_rx_dispatch:
+        009A * B6         ORA M                      ; B or state: negative = idle (FFH/FEH) -> sync_rx_idle
+        009B * FA C4 00   JM sync_rx_idle
+        009E * 23         INX H
+        009F * 78         MOV A,B
+        00A0 * 4E         MOV C,M                    ; C := RX_LRC
+        00A1 * A9         XRA C                      ; A := byte xor LRC
+        00A2 * 77         MOV M,A                    ; update RX_LRC
+        00A3 * 2B         DCX H
+        00A4 * 7E         MOV A,M
+        00A5 * A7         ANA A
+        00A6 * CA F6 00   JZ rx_st0_addr
+        00A9 * 3D         DCR A
+        00AA * CA 0D 01   JZ rx_st1_dev
+        00AD * 3D         DCR A
+        00AE * CA 26 01   JZ rx_st2_ctl
+        00B1 * 3D         DCR A
+        00B2 * CA 69 01   JZ rx_st3_enq_etx
+        00B5 * 3D         DCR A
+        00B6 * CA 75 01   JZ rx_st4_data
+        00B9 * 3D         DCR A
+        00BA * CA 99 01   JZ rx_st5_lrc_data
+        00BD * 3D         DCR A
+        00BE * CA AD 01   JZ rx_st6_lrc_enq
+        00C1   C3 87 00   JMP sync_rx_error
+
+        ;----------------------------------------------------------------------
+        ; sync_rx_idle  (00C4H)
+        ;   Idle state: only SOH (01h) starts a frame. Clears timeout counters;
+        ;   if LINK_DOWN, broadcasts [CYBER LINK ESTABLISHED] (msg at 180Dh).
+        ;----------------------------------------------------------------------
+        sync_rx_idle:
+        00C4 * 78         MOV A,B
+        00C5 * D6 01      SUI 01H                    ; only SOH (01H) is accepted when idle
+        00C7 * C2 94 00   JNZ L0094
+        00CA * 77         MOV M,A                    ; RX_STATE := 0 (expect address)
+        00CB * 23         INX H
+        00CC * 36 FE      MVI M,FEH                  ; RX_LRC := FEH (complement of SOH)
+        00CE * 97         SUB A
+        00CF * 32 9B 42   STA LINK_TMO_LO            ; link activity: clear both timeout counters
+        00D2 * 32 9C 42   STA LINK_TMO_HI
+        00D5 * 3A 9D 42   LDA LINK_DOWN              ; was the link marked down?
+        00D8 * A7         ANA A
+        00D9 * CA 94 00   JZ L0094
+        00DC * 97         SUB A
+        00DD * 32 9D 42   STA LINK_DOWN              ; LINK_DOWN := 0
+        00E0 * 0E 00      MVI C,00H
+        L00E2:
+        00E2 * 21 0D 18   LXI H,MSG_LINK_ESTABLISHED ; loop over channels 0-11 (C): broadcast [CYBER LINK ESTABLISHED]
+        00E5 * 97         SUB A
+        00E6 * CD EC 15   CALL build_reply
+        00E9 * 79         MOV A,C
+        00EA * FE 0B      CPI 0BH
+        00EC * CA F3 00   JZ L00F3
+        00EF * 0C         INR C
+        00F0 * C3 E2 00   JMP L00E2
+        L00F3:
+        00F3 * C3 94 00   JMP L0094
+
+        ;----------------------------------------------------------------------
+        ; rx_st0_addr  (00F6H)
+        ;   State 0: address byte, must be 70h-7Eh -> RX_ADDR.
+        ;----------------------------------------------------------------------
+        rx_st0_addr:
+        00F6 * 78         MOV A,B
+        00F7 * FE 70      CPI 70H                    ; address must be 70H-7EH
+        00F9 * FA 87 00   JM sync_rx_error
+        00FC * FE 7F      CPI 7FH
+        00FE * F2 87 00   JP sync_rx_error
+        0101 * 34         INR M
+        0102 * C3 07 01   JMP L0107
+        L0105:
+        0105 * 23         INX H
+        L0106:
+        0106 * 23         INX H
+        L0107:
+        0107 * 23         INX H
+        0108 * 23         INX H
+        0109 * 77         MOV M,A
+        010A * C3 94 00   JMP L0094
+
+        ;----------------------------------------------------------------------
+        ; rx_st1_dev  (010DH)
+        ;   State 1: device byte, must be 60h/61h/70h/71h -> RX_DEV.
+        ;----------------------------------------------------------------------
+        rx_st1_dev:
+        010D * 78         MOV A,B
+        010E * FE 61      CPI 61H
+        0110 * CA 22 01   JZ L0122
+        0113 * FE 71      CPI 71H
+        0115 * CA 22 01   JZ L0122
+        0118 * FE 60      CPI 60H
+        011A * CA 22 01   JZ L0122
+        011D   FE 70      CPI 70H
+        011F   C2 87 00   JNZ sync_rx_error
+        L0122:
+        0122 * 34         INR M
+        0123 * C3 06 01   JMP L0106
+
+        ;----------------------------------------------------------------------
+        ; rx_st2_ctl  (0126H)
+        ;   State 2: control byte. 05h (ENQ) = poll; 11h/12h/0Ch = data from
+        ;   host: allocate a buffer (0671h) and copy the header.
+        ;----------------------------------------------------------------------
+        rx_st2_ctl:
+        0126 * 34         INR M
+        0127 * 78         MOV A,B
+        0128 * FE 05      CPI 05H
+        012A * CA 05 01   JZ L0105
+        012D * FE 12      CPI 12H
+        012F * CA 3C 01   JZ L013C
+        0132 * FE 11      CPI 11H
+        0134 * CA 3C 01   JZ L013C
+        0137 * FE 0C      CPI 0CH
+        0139 * C2 87 00   JNZ sync_rx_error
+        L013C:
+        013C * 34         INR M
+        013D * 32 F6 A2   STA RX_CTL
+        0140 * 06 FF      MVI B,FFH
+        0142 * CD 71 06   CALL buf_alloc
+        0145 * DA 87 00   JC sync_rx_error
+        0148 * 36 03      MVI M,03H
+        014A * 22 F7 A2   SHLD RX_BUFPTR
+        014D * 23         INX H
+        014E * 5E         MOV E,M
+        014F * 23         INX H
+        0150 * 56         MOV D,M
+        0151 * E5         PUSH H
+        0152 * 21 F4 A2   LXI H,RX_ADDR
+        0155 * 0E FD      MVI C,FDH
+        L0157:
+        0157 * 7E         MOV A,M
+        0158 * 12         STAX D
+        0159 * 13         INX D
+        015A * 23         INX H
+        015B * 0C         INR C
+        015C * FA 57 01   JM L0157
+        015F * E1         POP H
+        0160 * 23         INX H
+        0161 * 23         INX H
+        0162 * 23         INX H
+        0163 * 73         MOV M,E
+        0164 * 23         INX H
+        0165 * 72         MOV M,D
+        0166 * C3 94 00   JMP L0094
+
+        ;----------------------------------------------------------------------
+        ; rx_st3_enq_etx  (0169H)
+        ;   State 3: after ENQ expect ETX (03h), then LRC.
+        ;----------------------------------------------------------------------
+        rx_st3_enq_etx:
+        0169 * 78         MOV A,B
+        016A * FE 03      CPI 03H
+        016C * C2 87 00   JNZ sync_rx_error
+        016F * 34         INR M
+        0170 * 34         INR M
+        L0171:
+        0171 * 34         INR M
+        0172 * C3 94 00   JMP L0094
+
+        ;----------------------------------------------------------------------
+        ; rx_st4_data  (0175H)
+        ;   State 4: data bytes are appended to the buffer until ETX.
+        ;----------------------------------------------------------------------
+        rx_st4_data:
+        0175 * 78         MOV A,B
+        0176 * FE 03      CPI 03H
+        0178 * CA 71 01   JZ L0171
+        017B * 2A F7 A2   LHLD RX_BUFPTR
+        017E * 11 06 00   LXI D,0006H
+        0181 * 19         DAD D
+        0182 * 56         MOV D,M
+        0183 * 2B         DCX H
+        0184 * 5E         MOV E,M
+        0185 * 2B         DCX H
+        0186 * 2B         DCX H
+        0187 * 7E         MOV A,M
+        0188 * 93         SUB E
+        0189 * 23         INX H
+        018A * 7E         MOV A,M
+        018B * 9A         SBB D
+        018C * DA 87 00   JC sync_rx_error
+        018F * 78         MOV A,B
+        0190 * 12         STAX D
+        0191 * 13         INX D
+        0192 * 23         INX H
+        0193 * 73         MOV M,E
+        0194 * 23         INX H
+        0195 * 72         MOV M,D
+        0196 * C3 94 00   JMP L0094
+
+        ;----------------------------------------------------------------------
+        ; rx_st5_lrc_data  (0199H)
+        ;   State 5: LRC of a data frame. OK -> buffer flagged complete, service
+        ;   task woken.
+        ;----------------------------------------------------------------------
+        rx_st5_lrc_data:
+        0199 * 36 FF      MVI M,FFH
+        019B * 23         INX H
+        019C * 79         MOV A,C
+        019D * E6 7F      ANI 7FH
+        019F * 90         SUB B
+        01A0 * C2 87 00   JNZ sync_rx_error
+        01A3 * 2A F7 A2   LHLD RX_BUFPTR
+        01A6 * 36 04      MVI M,04H
+        01A8 * 3E 00      MVI A,00H
+        01AA * C3 BD 01   JMP L01BD
+
+        ;----------------------------------------------------------------------
+        ; rx_st6_lrc_enq  (01ADH)
+        ;   State 6: LRC of a poll. OK -> POLL_ADDR := address, receiver off
+        ;   (A1h <- 02h), wake service task.
+        ;----------------------------------------------------------------------
+        rx_st6_lrc_enq:
+        01AD * 36 FF      MVI M,FFH
+        01AF * 23         INX H
+        01B0 * 79         MOV A,C
+        01B1 * E6 7F      ANI 7FH
+        01B3 * 90         SUB B
+        01B4 * C2 87 00   JNZ sync_rx_error
+        01B7 * 3A F5 A2   LDA RX_DEV
+        01BA * 47         MOV B,A
+        01BB * 23         INX H
+        01BC * 7E         MOV A,M
+        L01BD:
+        01BD * 32 D2 A2   STA POLL_ADDR
+        01C0 * 3E 02      MVI A,02H
+        01C2 * D3 A1      OUT SYNC_CTL               ; 8251: command: DTR only (receiver/transmitter off)
+        01C4 * 3E 01      MVI A,01H
+        01C6 * 32 0B 40   STA 400BH
+        01C9 * C1         POP B
+        01CA * D1         POP D
+        01CB * E1         POP H
+        01CC * F1         POP PSW
+        01CD * E5         PUSH H
+        01CE * D5         PUSH D
+        01CF * C5         PUSH B
+        01D0 * F5         PUSH PSW
+        01D1 * 3E 02      MVI A,02H
+        01D3 * C3 CD 07   JMP L07CD
+
+        ;============================================================================
+        ; 01D6-02DF  CYBER LINK: SYNC TRANSMIT (RST 4)
+        ;   Frame out: 11 x SYN, SOH, addr, dev, ctl, [data], ETX, LRC, SYN.
+        ;   Outgoing LRC = complement of the XOR of every byte SOH..ETX.
+        ;   Terminal replies: 18H = nothing to send, 13H = queued line (text ends ESC B),
+        ;   06H = ACK of a data frame.
+        ;============================================================================
+
+        ;----------------------------------------------------------------------
+        ; sync_tx_start  (01D6H)
+        ;   Start a transmit on the Cyber link: arm TX_STATE (11 leading SYN),
+        ;   A1h <- 33h, set bit in SYSCTL.
+        ;----------------------------------------------------------------------
+        sync_tx_start:
+        01D6 * F3         DI
+        01D7 * F5         PUSH PSW
+        01D8 * E5         PUSH H
+        01D9 * D5         PUSH D
+        01DA * C5         PUSH B
+        01DB * 36 03      MVI M,03H
+        01DD * 3E 01      MVI A,01H
+        01DF * 32 19 A3   STA TX_TRAIL_CNT
+        01E2 * 11 F9 A2   LXI D,TX_STATE
+        01E5 * EB         XCHG
+        01E6 * 36 F5      MVI M,F5H
+        01E8 * 23         INX H
+        01E9 * 73         MOV M,E
+        01EA * 23         INX H
+        01EB * 72         MOV M,D
+        01EC * 23         INX H
+        01ED * 36 FF      MVI M,FFH
+        01EF * EB         XCHG
+        01F0 * 23         INX H
+        01F1 * 5E         MOV E,M
+        01F2 * 23         INX H
+        01F3 * 56         MOV D,M
+        01F4 * 01 05 00   LXI B,0005H
+        01F7 * 09         DAD B
+        01F8 * 73         MOV M,E
+        01F9 * 23         INX H
+        01FA * 72         MOV M,D
+        01FB * 3E 33      MVI A,33H
+        01FD * D3 A1      OUT SYNC_CTL               ; 8251: command: TxEN DTR ER RTS (transmit)
+        01FF * DB FE      IN SYSCTL
+        0201 * F6 10      ORI 10H
+        0203 * D3 FE      OUT SYSCTL
+        0205 * C1         POP B
+        0206 * D1         POP D
+        0207 * E1         POP H
+        0208 * F1         POP PSW
+        0209 * FB         EI
+        020A * C9         RET
+
+        ;----------------------------------------------------------------------
+        ; sync_tx_isr  (020BH)
+        ;   Cyber link transmit ISR (RST 4). Sends SYN lead-in, SOH, payload,
+        ;   ETX, LRC, trailing SYN, then re-arms receive (A1h <- 96h).
+        ;----------------------------------------------------------------------
+        sync_tx_isr:
+        020B * F3         DI
+        020C * F5         PUSH PSW
+        020D * DB A1      IN SYNC_CTL
+        020F * 0F         RRC
+        0210 * D2 4B 02   JNC L024B
+        0213 * E5         PUSH H
+        0214 * D5         PUSH D
+        0215 * C5         PUSH B
+        0216 * 21 F9 A2   LXI H,TX_STATE
+        0219 * 7E         MOV A,M
+        021A * A7         ANA A
+        021B * FA 5F 02   JM L025F
+        021E * CA 67 02   JZ L0267
+        0221 * E5         PUSH H
+        0222 * 23         INX H
+        0223 * 5E         MOV E,M
+        0224 * 23         INX H
+        0225 * 56         MOV D,M
+        0226 * 23         INX H
+        0227 * EB         XCHG
+        0228 * 01 08 00   LXI B,0008H
+        022B * 09         DAD B
+        022C * 46         MOV B,M
+        022D * 2B         DCX H
+        022E * 4E         MOV C,M
+        022F * 2B         DCX H
+        0230 * 7E         MOV A,M
+        0231 * B8         CMP B
+        0232 * 2B         DCX H
+        0233 * C2 3B 02   JNZ L023B
+        0236 * 7E         MOV A,M
+        0237 * B9         CMP C
+        0238 * CA 70 02   JZ L0270
+        L023B:
+        023B * 0A         LDAX B
+        023C * 03         INX B
+        023D * 23         INX H
+        023E * 23         INX H
+        023F * 71         MOV M,C
+        0240 * 23         INX H
+        0241 * 70         MOV M,B
+        0242 * E1         POP H
+        L0243:
+        0243 * D3 A0      OUT SYNC_DATA
+        0245 * EB         XCHG
+        0246 * AE         XRA M
+        0247 * 77         MOV M,A
+        L0248:
+        0248 * C1         POP B
+        0249 * D1         POP D
+        024A * E1         POP H
+        L024B:
+        024B * F1         POP PSW
+        024C * FB         EI
+        024D * C9         RET
+        L024E:
+        024E * 3A 19 A3   LDA TX_TRAIL_CNT
+        0251 * 3D         DCR A
+        0252 * CA 5F 02   JZ L025F
+        0255   32 19 A3   STA TX_TRAIL_CNT
+        0258   3E 16      MVI A,16H
+        025A   D3 A0      OUT SYNC_DATA
+        025C   C3 48 02   JMP L0248
+        L025F:
+        025F * 3E 16      MVI A,16H
+        0261 * 34         INR M
+        0262 * D3 A0      OUT SYNC_DATA
+        0264 * C3 48 02   JMP L0248
+        L0267:
+        0267 * 3E 01      MVI A,01H
+        0269 * 34         INR M
+        026A * 11 FC A2   LXI D,TX_LRC
+        026D * C3 43 02   JMP L0243
+        L0270:
+        0270 * E1         POP H
+        0271 * 7E         MOV A,M
+        0272 * 3D         DCR A
+        0273 * CA 9A 02   JZ L029A
+        0276 * 3D         DCR A
+        0277 * CA A0 02   JZ L02A0
+        027A * 3D         DCR A
+        027B * CA 4E 02   JZ L024E
+        027E * 3E 96      MVI A,96H
+        0280 * D3 A1      OUT SYNC_CTL               ; 8251: command: EH ER RxE DTR (hunt)
+        0282 * 2A FA A2   LHLD TX_BUFPTR
+        0285 * 36 07      MVI M,07H
+        0287 * 2B         DCX H
+        0288 * 7E         MOV A,M
+        0289 * FE FF      CPI FFH
+        028B * C2 48 02   JNZ L0248
+        028E * 23         INX H
+        028F * 36 FF      MVI M,FFH
+        0291 * 21 00 00   LXI H,0000H
+        0294 * 22 FA A2   SHLD TX_BUFPTR
+        0297 * C3 48 02   JMP L0248
+        L029A:
+        029A * 3E 03      MVI A,03H
+        029C * 34         INR M
+        029D * C3 43 02   JMP L0243
+        L02A0:
+        02A0 * 34         INR M
+        02A1 * 23         INX H
+        02A2 * 23         INX H
+        02A3 * 23         INX H
+        02A4 * 7E         MOV A,M
+        02A5 * C3 43 02   JMP L0243
+        02A8            DB   76H x 56  ; padding (HLT)
+
+        ;============================================================================
+        ; 02E0-0620  POLL / DATA SERVICE TASK AND OUTPUT QUEUE
+        ;   Woken by the sync receive code via the task switcher.  Turns POLL_ADDR (70H+channel)
+        ;   into a channel index, decides whether a queued line or the idle reply is sent, and
+        ;   delivers host data (messages must end in ESC B/ESC "  = console, ESC space/ESC ! = printer).
+        ;============================================================================
+
+        ;----------------------------------------------------------------------
+        ; poll_service_task  (02E0H)
+        ;   Task that services polls/data frames from the Cyber host: turns
+        ;   POLL_ADDR into a channel number and replies (18h idle / queued line
+        ;   / ACK 06h).
+        ;----------------------------------------------------------------------
+        poll_service_task:
+        02E0 * 21 D2 A2   LXI H,POLL_ADDR
+        02E3 * 7E         MOV A,M
+        02E4 * A7         ANA A
+        02E5 * CA A5 03   JZ L03A5
+        02E8 * D6 70      SUI 70H
+        02EA * 32 FD A2   STA POLL_CHAN
+        02ED * 4F         MOV C,A
+        02EE * 36 00      MVI M,00H
+        02F0 * 21 8B 42   LXI H,CHTAB_428B
+        02F3 * 3E 01      MVI A,01H
+        02F5 * CD 30 15   CALL tbl_set
+        02F8 * 21 FD A2   LXI H,POLL_CHAN
+        02FB * 7E         MOV A,M
+        02FC * A7         ANA A
+        02FD * 23         INX H
+        02FE * C2 92 03   JNZ L0392
+        0301 * B6         ORA M
+        0302 * CA 92 03   JZ L0392
+        0305   06 00      MVI B,00H
+        0307   E5         PUSH H
+        0308   CD 21 06   CALL chan_state_ptr
+        030B   E1         POP H
+        030C   FE 00      CPI 00H
+        030E   C2 92 03   JNZ L0392
+        0311   7E         MOV A,M
+        0312   1F         RAR
+        0313   DA 4D 03   JC L034D
+        0316   46         MOV B,M
+        0317   F3         DI
+        0318   CD 4B 06   CALL chan_state_get
+        031B   FE 02      CPI 02H
+        031D   CA 88 03   JZ L0388
+        0320   FE 07      CPI 07H
+        0322   CA 88 03   JZ L0388
+        0325   78         MOV A,B
+        0326   FE 02      CPI 02H
+        0328   C2 3C 03   JNZ L033C
+        032B   3A 04 40   LDA 4004H
+        032E   FE 01      CPI 01H
+        0330   FB         EI
+        0331   C2 F1 04   JNZ L04F1
+        0334   3E 20      MVI A,20H
+        0336   32 0A 40   STA 400AH
+        0339   C3 25 05   JMP L0525
+        L033C:
+        033C   3A 07 40   LDA 4007H
+        033F   FE 01      CPI 01H
+        0341   FB         EI
+        0342   C2 F1 04   JNZ L04F1
+        0345   3E 20      MVI A,20H
+        0347   32 0A 40   STA 400AH
+        034A   C3 25 05   JMP L0525
+        L034D:
+        034D   46         MOV B,M
+        034E   F3         DI
+        034F   78         MOV A,B
+        0350   FE 01      CPI 01H
+        0352   C2 76 03   JNZ L0376
+        0355   DB 51      IN PPI_B
+        0357   E6 10      ANI 10H
+        0359   FB         EI
+        035A   C3 65 03   JMP L0365
+        035D ? 3E 20      MVI A,20H
+        035F ? 32 0A 40   STA 400AH
+        0362 ? C3 25 05   JMP L0525
+        L0365:
+        0365   CD 4B 06   CALL chan_state_get
+        0368   FE 05      CPI 05H
+        036A   C2 F1 04   JNZ L04F1
+        036D   FB         EI
+        036E   3E 21      MVI A,21H
+        0370   32 0A 40   STA 400AH
+        0373   C3 25 05   JMP L0525
+        L0376:
+        0376   DB 0D      IN 0DH
+        0378   E6 0C      ANI 0CH
+        037A   FE 08      CPI 08H
+        037C   FB         EI
+        037D   CA 65 03   JZ L0365
+        0380   3E 20      MVI A,20H
+        0382   32 0A 40   STA 400AH
+        0385   C3 25 05   JMP L0525
+        L0388:
+        0388   FB         EI
+        0389   CD 04 06   CALL queue_helper
+        038C   22 02 A3   SHLD A302H
+        038F   C3 A4 03   JMP L03A4
+        L0392:
+        0392 * 06 00      MVI B,00H
+        0394 * CD 21 06   CALL chan_state_ptr
+        0397 * FE 02      CPI 02H
+        0399 * CA A1 03   JZ L03A1
+        039C * FE 07      CPI 07H
+        039E * C2 5B 05   JNZ L055B
+        L03A1:
+        03A1 * CD 04 06   CALL queue_helper
+        L03A4:
+        03A4 * 00         NOP
+        L03A5:
+        03A5 * 2A FA A2   LHLD TX_BUFPTR
+        03A8 * 7C         MOV A,H
+        03A9 * B5         ORA L
+        03AA * CA B7 03   JZ L03B7
+        03AD * 2B         DCX H
+        03AE * 7E         MOV A,M
+        03AF * FE FF      CPI FFH
+        03B1 * C2 B7 03   JNZ L03B7
+        03B4 * 23         INX H
+        03B5 * 36 FF      MVI M,FFH
+        L03B7:
+        03B7 * 2A F7 A2   LHLD RX_BUFPTR
+        03BA * 7C         MOV A,H
+        03BB * B5         ORA L
+        03BC * CA 28 04   JZ L0428
+        03BF * E5         PUSH H
+        03C0 * 21 00 00   LXI H,0000H
+        03C3 * 22 F7 A2   SHLD RX_BUFPTR
+        03C6 * E1         POP H
+        03C7 * 23         INX H
+        03C8 * 5E         MOV E,M
+        03C9 * 23         INX H
+        03CA * 56         MOV D,M
+        03CB * 23         INX H
+        03CC * 23         INX H
+        03CD * 23         INX H
+        03CE * 4E         MOV C,M
+        03CF * 23         INX H
+        03D0 * E5         PUSH H
+        03D1 * 46         MOV B,M
+        03D2 * 0B         DCX B
+        03D3 * 0B         DCX B
+        03D4 * 0A         LDAX B
+        03D5 * FE 1B      CPI 1BH
+        03D7 * C2 1B 05   JNZ L051B
+        03DA * 03         INX B
+        03DB * 13         INX D
+        03DC * 1A         LDAX D
+        03DD * 32 FF A2   STA A2FFH
+        03E0 * 1B         DCX D
+        03E1 * 0A         LDAX B
+        03E2 * FE 20      CPI 20H
+        03E4 * CA 2D 04   JZ L042D
+        03E7 * FE 21      CPI 21H
+        03E9 * CA 4B 04   JZ L044B
+        03EC * FE 22      CPI 22H
+        03EE * CA F6 03   JZ L03F6
+        03F1 * FE 42      CPI 42H
+        03F3 * C2 1B 05   JNZ L051B
+        L03F6:
+        03F6 * 1A         LDAX D
+        03F7 * D6 70      SUI 70H
+        03F9 * 4F         MOV C,A
+        03FA * C2 00 04   JNZ L0400
+        03FD * 32 FE A2   STA A2FEH
+        L0400:
+        0400 * CD 5B 06   CALL buf_release_sent
+        0403 * 06 00      MVI B,00H
+        0405 * CD 21 06   CALL chan_state_ptr
+        0408 * FE 07      CPI 07H
+        040A * CD 25 07   CALL buf_free
+        040D * C3 10 04   JMP L0410
+        L0410:
+        0410 * 04         INR B
+        0411 * CD 21 06   CALL chan_state_ptr
+        0414 * FE 05      CPI 05H
+        0416 * C2 FC 04   JNZ L04FC
+        0419 * 05         DCR B
+        041A * 79         MOV A,C
+        041B * 32 D0 42   STA 42D0H
+        041E * CD 8C 05   CALL set_chan_flag
+        0421 * 3A D0 42   LDA 42D0H
+        0424 * 4F         MOV C,A
+        0425 * CD 78 04   CALL trim_trailing_spaces
+        L0428:
+        0428 * 3E 01      MVI A,01H
+        042A * CD C8 07   CALL task_switch
+        L042D:
+        042D * 06 01      MVI B,01H
+        042F * C3 34 04   JMP L0434
+        0432 ? 06 03      MVI B,03H
+        L0434:
+        0434 * CD 5B 06   CALL buf_release_sent
+        0437 * CD 4B 06   CALL chan_state_get
+        043A * FE 05      CPI 05H
+        043C * 0E 00      MVI C,00H
+        043E * CD 8C 05   CALL set_chan_flag
+        0441 * CD 06 1A   CALL buf_trim_tail
+        L0444:
+        0444 * 78         MOV A,B
+        0445 * 32 FE A2   STA A2FEH
+        0448 * C3 28 04   JMP L0428
+        L044B:
+        044B * 06 02      MVI B,02H
+        044D * C3 52 04   JMP L0452
+        0450 ? 06 04      MVI B,04H
+        L0452:
+        0452 * CD 5B 06   CALL buf_release_sent
+        0455 * E1         POP H
+        0456 * EB         XCHG
+        0457 * 0E 00      MVI C,00H
+        0459 * 23         INX H
+        045A * 7E         MOV A,M
+        045B * E5         PUSH H
+        045C * C5         PUSH B
+        045D * 21 09 A3   LXI H,A309H
+        0460 * 06 00      MVI B,00H
+        0462 * 09         DAD B
+        0463 * 77         MOV M,A
+        0464 * C1         POP B
+        0465 * E1         POP H
+        0466 * 23         INX H
+        0467 * 36 06      MVI M,06H
+        0469 * 23         INX H
+        046A * EB         XCHG
+        046B * 72         MOV M,D
+        046C * 2B         DCX H
+        046D * 73         MOV M,E
+        046E * 11 FB FF   LXI D,FFFBH
+        0471 * 19         DAD D
+        0472 * CD D6 01   CALL sync_tx_start
+        0475 * C3 44 04   JMP L0444
+
+        ;----------------------------------------------------------------------
+        ; trim_trailing_spaces  (0478H)
+        ;   Strip trailing blanks (20H) from the line held in a buffer (end
+        ;   pointer at record+5).
+        ;----------------------------------------------------------------------
+        trim_trailing_spaces:
+        0478 * E5         PUSH H
+        0479 * D5         PUSH D
+        047A * 11 05 00   LXI D,0005H
+        047D * 19         DAD D
+        047E * 5E         MOV E,M
+        047F * 23         INX H
+        0480 * 56         MOV D,M
+        0481 * 1B         DCX D
+        0482 * 1B         DCX D
+        0483 * EB         XCHG
+        0484 * 3E 20      MVI A,20H
+        L0486:
+        0486 * 2B         DCX H
+        0487 * BE         CMP M
+        0488 * CA 86 04   JZ L0486
+        048B * E5         PUSH H
+        048C * D5         PUSH D
+        048D * 2B         DCX H
+        048E * 2B         DCX H
+        048F * EB         XCHG
+        0490 * 23         INX H
+        0491 * 23         INX H
+        0492 * 7E         MOV A,M
+        0493 * BA         CMP D
+        0494 * C2 A5 04   JNZ L04A5
+        0497 * 2B         DCX H
+        0498 * 7E         MOV A,M
+        0499 * BB         CMP E
+        049A * C2 A5 04   JNZ L04A5
+        049D   D1         POP D
+        049E   E1         POP H
+        049F   23         INX H
+        04A0   36 00      MVI M,00H
+        04A2   C3 A7 04   JMP L04A7
+        L04A5:
+        04A5 * D1         POP D
+        04A6 * E1         POP H
+        L04A7:
+        04A7 * 23         INX H
+        04A8 * 36 1B      MVI M,1BH
+        04AA * 23         INX H
+        04AB * 36 41      MVI M,41H
+        04AD * E5         PUSH H
+        04AE * 21 7B 42   LXI H,CHTAB_427B
+        04B1 * CD 29 15   CALL tbl_get
+        04B4 * A7         ANA A
+        04B5 * CA BF 04   JZ L04BF
+        L04B8:
+        04B8   E1         POP H
+        04B9   23         INX H
+        04BA   36 11      MVI M,11H
+        04BC   C3 CA 04   JMP L04CA
+        L04BF:
+        04BF * 21 6B 42   LXI H,CHTAB_426B
+        04C2 * CD 29 15   CALL tbl_get
+        04C5 * A7         ANA A
+        04C6 * C2 B8 04   JNZ L04B8
+        04C9 * E1         POP H
+        L04CA:
+        04CA * EB         XCHG
+        04CB * 13         INX D
+        04CC * 72         MOV M,D
+        04CD * 2B         DCX H
+        04CE * 73         MOV M,E
+        04CF * 23         INX H
+        04D0 * 23         INX H
+        04D1 * 5E         MOV E,M
+        04D2 * 23         INX H
+        04D3 * 56         MOV D,M
+        04D4 * 13         INX D
+        04D5 * 13         INX D
+        04D6 * 1A         LDAX D
+        04D7 * FE 11      CPI 11H
+        04D9 * 3E 00      MVI A,00H
+        04DB * CA E4 04   JZ L04E4
+        04DE * 3E 1F      MVI A,1FH
+        04E0 * 12         STAX D
+        04E1 * C3 E9 04   JMP L04E9
+        L04E4:
+        04E4 * 12         STAX D
+        04E5 * 1B         DCX D
+        04E6 * 3E 00      MVI A,00H
+        04E8 * 12         STAX D
+        L04E9:
+        04E9 * 72         MOV M,D
+        04EA * 2B         DCX H
+        04EB * 73         MOV M,E
+        04EC * D1         POP D
+        04ED * E1         POP H
+        04EE * 36 06      MVI M,06H
+        04F0 * C9         RET
+        L04F1:
+        04F1   06 FF      MVI B,FFH
+        04F3   CD 71 06   CALL buf_alloc
+        04F6   D2 63 05   JNC L0563
+        04F9   C3 58 05   JMP L0558
+        L04FC:
+        04FC   E1         POP H
+        04FD   EB         XCHG
+        04FE   7E         MOV A,M
+        04FF   D6 70      SUI 70H
+        0501   4F         MOV C,A
+        0502   CD 80 05   CALL get_chan_flag
+        0505   23         INX H
+        0506   E6 FE      ANI FEH
+        0508   77         MOV M,A
+        0509   23         INX H
+        050A   36 18      MVI M,18H
+        050C   23         INX H
+        050D   EB         XCHG
+        050E   72         MOV M,D
+        050F   2B         DCX H
+        0510   73         MOV M,E
+        0511   11 FB FF   LXI D,FFFBH
+        0514   19         DAD D
+        0515   CD D6 01   CALL sync_tx_start
+        0518   C3 28 04   JMP L0428
+        L051B:
+        051B   E1         POP H
+        051C   11 FA FF   LXI D,FFFAH
+        051F   19         DAD D
+        0520   36 FF      MVI M,FFH
+        0522   C3 28 04   JMP L0428
+        L0525:
+        0525   06 FF      MVI B,FFH
+        0527   CD 71 06   CALL buf_alloc
+        052A   DA 58 05   JC L0558
+        052D   23         INX H
+        052E   5E         MOV E,M
+        052F   23         INX H
+        0530   56         MOV D,M
+        0531   EB         XCHG
+        0532   36 70      MVI M,70H
+        0534   23         INX H
+        0535   0E 00      MVI C,00H
+        0537   CD 80 05   CALL get_chan_flag
+        053A   77         MOV M,A
+        053B   23         INX H
+        053C   36 13      MVI M,13H
+        053E   23         INX H
+        053F   36 1B      MVI M,1BH
+        0541   23         INX H
+        0542   3A 0A 40   LDA 400AH
+        0545   77         MOV M,A
+        0546   23         INX H
+        L0547:
+        0547 * EB         XCHG
+        0548 * E5         PUSH H
+        0549 * 23         INX H
+        054A * 23         INX H
+        054B * 23         INX H
+        054C * 73         MOV M,E
+        054D * 23         INX H
+        054E * 72         MOV M,D
+        054F * E1         POP H
+        0550 * 2B         DCX H
+        0551 * 2B         DCX H
+        0552 * CD D6 01   CALL sync_tx_start
+        0555 * C3 A4 03   JMP L03A4
+        L0558:
+        0558   C3 A4 03   JMP L03A4
+        L055B:
+        055B * 06 FF      MVI B,FFH
+        055D * CD B2 06   CALL L06B2
+        0560 * DA 58 05   JC L0558
+        L0563:
+        0563 * 23         INX H
+        0564 * 5E         MOV E,M
+        0565 * 23         INX H
+        0566 * 56         MOV D,M
+        0567 * EB         XCHG
+        0568 * 3A FD A2   LDA POLL_CHAN
+        056B * C6 70      ADI 70H
+        056D * 77         MOV M,A
+        056E * 23         INX H
+        056F * 3A FD A2   LDA POLL_CHAN
+        0572 * 4F         MOV C,A
+        0573 * CD 80 05   CALL get_chan_flag
+        0576 * E6 FE      ANI FEH
+        0578 * 77         MOV M,A
+        0579 * 23         INX H
+        057A * 36 18      MVI M,18H
+        057C * 23         INX H
+        057D * C3 47 05   JMP L0547
+
+        ;----------------------------------------------------------------------
+        ; get_chan_flag  (0580H)
+        ;   A := byte [A309H + C] (per-channel record flag).
+        ;----------------------------------------------------------------------
+        get_chan_flag:
+        0580 * E5         PUSH H
+        0581 * C5         PUSH B
+        0582 * 21 09 A3   LXI H,A309H
+        0585 * 06 00      MVI B,00H
+        0587 * 09         DAD B
+        0588 * 7E         MOV A,M
+        0589 * C1         POP B
+        058A * E1         POP H
+        058B * C9         RET
+
+        ;----------------------------------------------------------------------
+        ; set_chan_flag  (058CH)
+        ;   Store the current character (A2FFH) at A309H+C and update the
+        ;   channel record (A306H, A308H).
+        ;----------------------------------------------------------------------
+        set_chan_flag:
+        058C * 22 06 A3   SHLD A306H
+        058F * 3A FF A2   LDA A2FFH
+        0592 * E5         PUSH H
+        0593 * C5         PUSH B
+        0594 * 21 09 A3   LXI H,A309H
+        0597 * 06 00      MVI B,00H
+        0599 * 09         DAD B
+        059A * 77         MOV M,A
+        059B * C1         POP B
+        059C * E1         POP H
+        059D * 78         MOV A,B
+        059E * 32 08 A3   STA A308H
+        05A1 * A7         ANA A
+        05A2 * C2 B1 05   JNZ L05B1
+        05A5 * 21 AE A2   LXI H,A2AEH
+        05A8 * 81         ADD C
+        05A9 * 32 08 A3   STA A308H
+        05AC * 81         ADD C
+        05AD * 4F         MOV C,A
+        05AE * C3 C5 05   JMP L05C5
+        L05B1:
+        05B1 * 21 CD A2   LXI H,A2CDH
+        05B4 * 48         MOV C,B
+        05B5 * 06 00      MVI B,00H
+        05B7 * 09         DAD B
+        05B8 * EB         XCHG
+        05B9 * E1         POP H
+        05BA * E3         XTHL
+        05BB * 01 FA FF   LXI B,FFFAH
+        05BE * 09         DAD B
+        05BF * 7D         MOV A,L
+        05C0 * DE 8B      SBI 8BH
+        05C2 * C3 D0 05   JMP L05D0
+        L05C5:
+        05C5 * 09         DAD B
+        05C6 * EB         XCHG
+        05C7 * E1         POP H
+        05C8 * E3         XTHL
+        05C9 * 01 FA FF   LXI B,FFFAH
+        05CC * 09         DAD B
+        05CD * 7D         MOV A,L
+        05CE * DE 8B      SBI 8BH
+        L05D0:
+        05D0 * 3C         INR A
+        05D1 * 12         STAX D
+        05D2 * 22 04 A3   SHLD A304H
+        05D5 * 2B         DCX H
+        05D6 * 3A 08 A3   LDA A308H
+        05D9 * 77         MOV M,A
+        05DA * 2A 06 A3   LHLD A306H
+        05DD * 2B         DCX H
+        05DE * 36 FF      MVI M,FFH
+        05E0 * 23         INX H
+        05E1 * 23         INX H
+        05E2 * 5E         MOV E,M
+        05E3 * 23         INX H
+        05E4 * 56         MOV D,M
+        05E5 * EB         XCHG
+        05E6 * 23         INX H
+        05E7 * 3A FF A2   LDA A2FFH
+        05EA * 77         MOV M,A
+        05EB * 23         INX H
+        05EC * 36 06      MVI M,06H
+        05EE * 23         INX H
+        05EF * 13         INX D
+        05F0 * 13         INX D
+        05F1 * 13         INX D
+        05F2 * EB         XCHG
+        05F3 * 73         MOV M,E
+        05F4 * 23         INX H
+        05F5 * 72         MOV M,D
+        05F6 * 2A 06 A3   LHLD A306H
+        05F9 * CD D6 01   CALL sync_tx_start
+        05FC * 2A 04 A3   LHLD A304H
+        05FF * 3A 08 A3   LDA A308H
+        0602 * 47         MOV B,A
+        0603 * C9         RET
+
+        ;----------------------------------------------------------------------
+        ; queue_helper  (0604H)
+        ;   Helper used by the service task (queue/descriptor handling).
+        ;----------------------------------------------------------------------
+        queue_helper:
+        0604 * E5         PUSH H
+        0605 * D5         PUSH D
+        0606 * 23         INX H
+        0607 * 5E         MOV E,M
+        0608 * 23         INX H
+        0609 * 56         MOV D,M
+        060A * 21 FD A2   LXI H,POLL_CHAN
+        060D * 7E         MOV A,M
+        060E * 4F         MOV C,A
+        060F * C6 70      ADI 70H
+        0611 * 12         STAX D
+        0612 * 13         INX D
+        0613 * CD 80 05   CALL get_chan_flag
+        0616 * 12         STAX D
+        0617 * 3E 13      MVI A,13H
+        0619 * 13         INX D
+        061A * 12         STAX D
+        061B * D1         POP D
+        061C * E1         POP H
+        061D * CD D6 01   CALL sync_tx_start
+        0620 * C9         RET
+
+        ;============================================================================
+        ; 0621-075F  CHANNEL RECORD ACCESSORS AND BUFFER MANAGEMENT
+        ;   Per-channel state tables, buffer allocation from the pool, queue insertion.
+        ;============================================================================
+
+        ;----------------------------------------------------------------------
+        ; chan_state_ptr  (0621H)
+        ;   Per-channel state accessor. In: C=channel, B=field select. Out:
+        ;   HL=pointer, A=value (tables CHSTATE_A18B/A235 via CHMAP_A2AD).
+        ;----------------------------------------------------------------------
+        chan_state_ptr:
+        0621 * C5         PUSH B
+        0622 * 78         MOV A,B
+        0623 * A7         ANA A
+        0624 * CA 39 06   JZ L0639
+        0627 * 79         MOV A,C
+        0628 * 81         ADD C
+        0629 * 80         ADD B
+        062A * 06 00      MVI B,00H
+        062C * 4F         MOV C,A
+        062D * 21 AD A2   LXI H,CHMAP_A2AD
+        0630 * 09         DAD B
+        0631 * 4E         MOV C,M
+        0632 * 21 8B A1   LXI H,CHSTATE_A18B
+        0635 * 09         DAD B
+        0636 * 7E         MOV A,M
+        0637 * C1         POP B
+        0638 * C9         RET
+        L0639:
+        0639 * 79         MOV A,C
+        063A * 81         ADD C
+        063B * 80         ADD B
+        063C * 06 00      MVI B,00H
+        063E * 4F         MOV C,A
+        063F * 21 AD A2   LXI H,CHMAP_A2AD
+        0642 * 09         DAD B
+        0643 * 4E         MOV C,M
+        0644 * 21 35 A2   LXI H,CHSTATE_A235
+        0647 * 09         DAD B
+        0648 * 7E         MOV A,M
+        0649 * C1         POP B
+        064A * C9         RET
+
+        ;----------------------------------------------------------------------
+        ; chan_state_get  (064BH)
+        ;   A := state byte of channel B, looked up through the map at A2CDH
+        ;   into the table at A18BH.
+        ;----------------------------------------------------------------------
+        chan_state_get:
+        064B * C5         PUSH B
+        064C * 48         MOV C,B
+        064D * 06 00      MVI B,00H
+        064F * 21 CD A2   LXI H,A2CDH
+        0652 * 09         DAD B
+        0653 * 4E         MOV C,M
+        0654 * 21 8B A1   LXI H,CHSTATE_A18B
+        0657 * 09         DAD B
+        0658 * 7E         MOV A,M
+        0659 * C1         POP B
+        065A * C9         RET
+
+        ;----------------------------------------------------------------------
+        ; buf_release_sent  (065BH)
+        ;   If the pending buffer at A302H has been sent (state 07H) clear A302H
+        ;   and return it to the free list.
+        ;----------------------------------------------------------------------
+        buf_release_sent:
+        065B * 2A 02 A3   LHLD A302H
+        065E * 7D         MOV A,L
+        065F * B4         ORA H
+        0660 * C8         RZ
+        0661   7E         MOV A,M
+        0662   D6 07      SUI 07H
+        0664   C0         RNZ
+        0665   E5         PUSH H
+        0666   21 00 00   LXI H,0000H
+        0669   22 02 A3   SHLD A302H
+        066C   E1         POP H
+        066D   CD 25 07   CALL buf_free
+        0670   C9         RET
+
+        ;----------------------------------------------------------------------
+        ; buf_alloc  (0671H)
+        ;   Allocate a message buffer from the pool (descriptors at 1132h).
+        ;   Carry set = none free.
+        ;----------------------------------------------------------------------
+        buf_alloc:
+        0671 * D5         PUSH D
+        0672 * 21 8B A1   LXI H,CHSTATE_A18B
+        L0675:
+        0675 * 7E         MOV A,M
+        0676 * A7         ANA A
+        0677 * FA 8B 06   JM L068B
+        067A * 11 0A 00   LXI D,000AH
+        067D * 19         DAD D
+        067E * 11 35 A2   LXI D,CHSTATE_A235
+        0681 * 7B         MOV A,E
+        0682 * 95         SUB L
+        0683 * 7A         MOV A,D
+        0684 * 9C         SBB H
+        0685 * DA B0 06   JC L06B0
+        0688 * C3 75 06   JMP L0675
+        L068B:
+        068B * 78         MOV A,B
+        068C * CD 22 07   CALL buf_free_prev
+        068F * A7         ANA A
+        0690 * FA B0 06   JM L06B0
+        0693 * 11 CD A2   LXI D,A2CDH
+        0696 * CA 9E 06   JZ L069E
+        L0699:
+        0699 * 13         INX D
+        069A * 3D         DCR A
+        069B * C2 99 06   JNZ L0699
+        L069E:
+        069E * D5         PUSH D
+        069F * 11 8B A1   LXI D,CHSTATE_A18B
+        L06A2:
+        06A2 * 7A         MOV A,D
+        06A3 * 2F         CMA
+        06A4 * 57         MOV D,A
+        06A5 * 7B         MOV A,E
+        06A6 * 2F         CMA
+        06A7 * 5F         MOV E,A
+        06A8 * 13         INX D
+        06A9 * EB         XCHG
+        06AA * 19         DAD D
+        06AB * 7D         MOV A,L
+        06AC * EB         XCHG
+        06AD * D1         POP D
+        06AE * 12         STAX D
+        06AF * A7         ANA A
+        L06B0:
+        06B0 * D1         POP D
+        06B1 * C9         RET
+        L06B2:
+        06B2 * D5         PUSH D
+        06B3 * 78         MOV A,B
+        06B4 * A7         ANA A
+        06B5 * CA ED 06   JZ L06ED
+        06B8 * 21 8B A1   LXI H,CHSTATE_A18B
+        L06BB:
+        06BB * 7E         MOV A,M
+        06BC * A7         ANA A
+        06BD * FA D1 06   JM L06D1
+        06C0 * 11 0A 00   LXI D,000AH
+        06C3 * 19         DAD D
+        06C4 * 11 35 A2   LXI D,CHSTATE_A235
+        06C7 * 7B         MOV A,E
+        06C8 * 95         SUB L
+        06C9 * 7A         MOV A,D
+        06CA * 9C         SBB H
+        06CB * DA B0 06   JC L06B0
+        06CE * C3 BB 06   JMP L06BB
+        L06D1:
+        06D1 * 78         MOV A,B
+        06D2 * CD 22 07   CALL buf_free_prev
+        06D5 * A7         ANA A
+        06D6 * FA B0 06   JM L06B0
+        06D9 * 81         ADD C
+        06DA * 81         ADD C
+        06DB * 11 AD A2   LXI D,CHMAP_A2AD
+        06DE * CA E6 06   JZ L06E6
+        L06E1:
+        06E1 * 13         INX D
+        06E2 * 3D         DCR A
+        06E3 * C2 E1 06   JNZ L06E1
+        L06E6:
+        06E6 * D5         PUSH D
+        06E7 * 11 8B A1   LXI D,CHSTATE_A18B
+        06EA * C3 A2 06   JMP L06A2
+        L06ED:
+        06ED * 21 35 A2   LXI H,CHSTATE_A235
+        L06F0:
+        06F0 * 7E         MOV A,M
+        06F1 * A7         ANA A
+        06F2 * FA 06 07   JM L0706
+        06F5 * 11 0A 00   LXI D,000AH
+        06F8 * 19         DAD D
+        06F9 * 11 AC A2   LXI D,A2ACH
+        06FC * 7B         MOV A,E
+        06FD * 95         SUB L
+        06FE * 7A         MOV A,D
+        06FF * 9C         SBB H
+        0700 * DA B0 06   JC L06B0
+        0703 * C3 F0 06   JMP L06F0
+        L0706:
+        0706 * 78         MOV A,B
+        0707 * CD 22 07   CALL buf_free_prev
+        070A * A7         ANA A
+        070B * FA B0 06   JM L06B0
+        070E * 81         ADD C
+        070F * 81         ADD C
+        0710 * 11 AD A2   LXI D,CHMAP_A2AD
+        0713 * CA 1B 07   JZ L071B
+        L0716:
+        0716 * 13         INX D
+        0717 * 3D         DCR A
+        0718 * C2 16 07   JNZ L0716
+        L071B:
+        071B * D5         PUSH D
+        071C * 11 35 A2   LXI D,CHSTATE_A235
+        071F * C3 A2 06   JMP L06A2
+
+        ;----------------------------------------------------------------------
+        ; buf_free_prev  (0722H)
+        ;   Store A at [HL-1] then fall into buf_free.
+        ;----------------------------------------------------------------------
+        buf_free_prev:
+        0722 * 2B         DCX H
+        0723 * 77         MOV M,A
+        0724 * 23         INX H
+
+        ;----------------------------------------------------------------------
+        ; buf_free  (0725H)
+        ;   Return the buffer record at HL to the free list (adjusts the pool
+        ;   pointers).
+        ;----------------------------------------------------------------------
+        buf_free:
+        0725 * E5         PUSH H
+        0726 * D5         PUSH D
+        0727 * 23         INX H
+        0728 * 5E         MOV E,M
+        0729 * 23         INX H
+        072A * 56         MOV D,M
+        072B * D5         PUSH D
+        072C * 13         INX D
+        072D * 13         INX D
+        072E * 13         INX D
+        072F * 23         INX H
+        0730 * 23         INX H
+        0731 * 23         INX H
+        0732 * 73         MOV M,E
+        0733 * 23         INX H
+        0734 * 72         MOV M,D
+        0735 * 23         INX H
+        0736 * D1         POP D
+        0737 * 73         MOV M,E
+        0738 * 23         INX H
+        0739 * 72         MOV M,D
+        073A * D1         POP D
+        073B * E1         POP H
+        073C * 36 00      MVI M,00H
+        073E * C9         RET
+        073F            DB   76H x 12  ; padding (HLT)
+        074B            DB   '<S>'  ; text residue
+        074E            DB   76H x 18  ; padding (HLT)
+
+        ;============================================================================
+        ; 0760-07C7  TIMER TICK (RST 3)
+        ;   Ticks time-slice counter TIMESLICE and the 16-bit link timeout LINK_TMO.
+        ;   The three bytes "<S>" at 074BH are text residue in the padding.
+        ;============================================================================
+
+        ;----------------------------------------------------------------------
+        ; timer_isr  (0760H)
+        ;   Timer tick ISR (RST 3). Reads TICK_ACK, decrements LINK_TMO (link-
+        ;   lost timeout) and TIMESLICE (forces task switch). On timeout sets
+        ;   LINK_DOWN and broadcasts [CYBER LINK LOST] (msg at 17F7h).
+        ;----------------------------------------------------------------------
+        timer_isr:
+        0760 * E5         PUSH H
+        0761 * F5         PUSH PSW
+        0762 * DB FF      IN TICK_ACK                ; acknowledge the tick
+        0764 * 21 9B 42   LXI H,LINK_TMO_LO          ; 16-bit link timeout counter, low byte (counts down each tick)
+        0767 * 35         DCR M
+        0768 * C2 70 07   JNZ L0770
+        076B * 23         INX H
+        076C * 35         DCR M                      ; high byte; zero = link lost
+        076D * CA 84 07   JZ L0784
+        L0770:
+        0770 * 21 00 40   LXI H,TIMESLICE            ; time-slice counter
+        0773 * 35         DCR M
+        0774 * C2 80 07   JNZ L0780
+        0777 * F1         POP PSW
+        0778 * D5         PUSH D
+        0779 * C5         PUSH B
+        077A * F5         PUSH PSW
+        077B * 3E 02      MVI A,02H                  ; slice expired: task switch (A=2)
+        077D * C3 CD 07   JMP L07CD
+        L0780:
+        0780 * F1         POP PSW
+        0781 * E1         POP H
+        0782 * FB         EI
+        0783 * C9         RET
+        L0784:
+        0784   3A 9D 42   LDA LINK_DOWN              ; link timeout: nothing to do if already down
+        0787   A7         ANA A
+        0788   C2 70 07   JNZ L0770
+        078B   3C         INR A
+        078C   32 9D 42   STA LINK_DOWN              ; LINK_DOWN := 1
+        078F   F1         POP PSW
+        0790   D5         PUSH D
+        0791   C5         PUSH B
+        0792   F5         PUSH PSW
+        0793   0E 00      MVI C,00H
+        L0795:
+        0795   21 F7 17   LXI H,MSG_LINK_LOST        ; loop over channels (C): broadcast [CYBER LINK LOST]
+        0798   97         SUB A
+        0799   CD EC 15   CALL build_reply
+        079C   06 00      MVI B,00H
+        079E   CD 21 06   CALL chan_state_ptr
+        07A1   36 00      MVI M,00H
+        07A3   23         INX H
+        07A4   5E         MOV E,M
+        07A5   23         INX H
+        07A6   56         MOV D,M
+        07A7   13         INX D
+        07A8   13         INX D
+        07A9   13         INX D
+        07AA   23         INX H
+        07AB   23         INX H
+        07AC   23         INX H
+        07AD   73         MOV M,E
+        07AE   23         INX H
+        07AF   72         MOV M,D
+        07B0   97         SUB A
+        07B1   21 8B 42   LXI H,CHTAB_428B
+        07B4   CD 30 15   CALL tbl_set
+        07B7   79         MOV A,C
+        07B8   FE 0B      CPI 0BH
+        07BA   CA C1 07   JZ L07C1
+        07BD   0C         INR C
+        07BE   C3 95 07   JMP L0795
+        L07C1:
+        07C1   F1         POP PSW
+        07C2   C1         POP B
+        07C3   D1         POP D
+        07C4   F5         PUSH PSW
+        07C5   C3 70 07   JMP L0770
+
+        ;============================================================================
+        ; 07C8-0868  TASK SWITCHER
+        ;   Round-robin scheduler: saves/restores registers and SP per task block.
+        ;============================================================================
+
+        ;----------------------------------------------------------------------
+        ; task_switch  (07C8H)
+        ;   Save registers + SP in the current task block, pick the next ready
+        ;   task and resume it. A = reason code.
+        ;----------------------------------------------------------------------
+        task_switch:
+        07C8 * F3         DI
+        07C9 * E5         PUSH H
+        07CA * D5         PUSH D
+        07CB * C5         PUSH B
+        07CC * F5         PUSH PSW
+        L07CD:
+        07CD * F3         DI
+        07CE * 2A 02 40   LHLD CUR_TASK
+        07D1 * 11 04 00   LXI D,0004H
+        07D4 * 19         DAD D
+        07D5 * 77         MOV M,A
+        07D6 * 23         INX H
+        07D7 * 23         INX H
+        07D8 * EB         XCHG
+        07D9 * 21 00 00   LXI H,0000H
+        07DC * 39         DAD SP
+        07DD * EB         XCHG
+        07DE * 73         MOV M,E
+        07DF * 23         INX H
+        07E0 * 72         MOV M,D
+        07E1 * 23         INX H
+        07E2 * 23         INX H
+        07E3 * 23         INX H
+        07E4 * 23         INX H
+        07E5 * 23         INX H
+        07E6 * 3A 0B 40   LDA 400BH
+        07E9 * 3D         DCR A
+        07EA * FA F8 07   JM L07F8
+        07ED * CA 4F 08   JZ L084F
+        07F0 * 2A 0C 40   LHLD 400CH
+        07F3 * 3E 00      MVI A,00H
+        07F5 * 32 0B 40   STA 400BH
+        L07F8:
+        07F8 * 06 03      MVI B,03H
+        L07FA:
+        07FA * 05         DCR B
+        07FB * CA 5C 08   JZ L085C
+        07FE * 23         INX H
+        07FF * 7E         MOV A,M
+        0800 * FE FF      CPI FFH
+        0802 * 2B         DCX H
+        0803 * C2 0D 08   JNZ L080D
+        0806 * 21 05 42   LXI H,4205H
+        0809 * 05         DCR B
+        080A * CA 5C 08   JZ L085C
+        L080D:
+        080D * 22 02 40   SHLD CUR_TASK
+        0810 * 11 04 00   LXI D,0004H
+        0813 * 19         DAD D
+        0814 * 7E         MOV A,M
+        0815 * FE 02      CPI 02H
+        0817 * CA 3C 08   JZ L083C
+        081A * FE 01      CPI 01H
+        081C * CA 26 08   JZ L0826
+        081F   11 08 00   LXI D,0008H
+        0822   19         DAD D
+        0823   C3 FA 07   JMP L07FA
+        L0826:
+        0826 * 36 03      MVI M,03H
+        0828 * 23         INX H
+        0829 * 7E         MOV A,M
+        082A * 32 00 40   STA TIMESLICE
+        082D * 2B         DCX H
+        082E * 2B         DCX H
+        082F * 56         MOV D,M
+        0830 * 2B         DCX H
+        0831 * 5E         MOV E,M
+        0832 * EB         XCHG
+        0833 * F9         SPHL
+        0834 * EB         XCHG
+        0835 * 2B         DCX H
+        0836 * 56         MOV D,M
+        0837 * 2B         DCX H
+        0838 * 5E         MOV E,M
+        0839 * EB         XCHG
+        083A * FB         EI
+        083B * E9         PCHL
+        L083C:
+        083C * 36 03      MVI M,03H
+        083E * 23         INX H
+        083F * 7E         MOV A,M
+        0840 * 32 00 40   STA TIMESLICE
+        0843 * 23         INX H
+        0844 * 5E         MOV E,M
+        0845 * 23         INX H
+        0846 * 56         MOV D,M
+        0847 * EB         XCHG
+        0848 * F9         SPHL
+        0849 * F1         POP PSW
+        084A * C1         POP B
+        084B * D1         POP D
+        084C * E1         POP H
+        084D * FB         EI
+        084E * C9         RET
+        L084F:
+        084F * 22 0C 40   SHLD 400CH
+        0852 * 21 0B 40   LXI H,400BH
+        0855 * 34         INR M
+        0856 * 21 1F 42   LXI H,421FH
+        0859 * C3 0D 08   JMP L080D
+        L085C:
+        085C   21 F9 41   LXI H,INIT_BLOCK
+        085F   22 02 40   SHLD CUR_TASK
+        0862   11 04 00   LXI D,0004H
+        0865   19         DAD D
+        0866   C3 26 08   JMP L0826
+
+        ;============================================================================
+        ; 0869-087F  IDLE LOOP
+        ;   NOP / HLT / JMP back. Everything else runs from interrupts.
+        ;============================================================================
+
+        ;----------------------------------------------------------------------
+        ; idle_loop  (0869H)
+        ;   Idle loop: NOP / HLT, woken by interrupts. (0869h holds the NOP that
+        ;   is also the high byte of the JMP before it.)
+        ;----------------------------------------------------------------------
+        idle_loop:
+        0869 * 76         HLT
+        086A * C3 69 08   JMP idle_loop
+        086D            DB   76H x 19  ; padding (HLT)
+
+        ;============================================================================
+        ; 0880-0A34  ASYNC USER INPUT (RST 6): CHARACTER HANDLING AND LOCAL COMMANDS
+        ;   A received byte -> poll_channels -> stub_in_data -> rx_char_handler.
+        ;   CR/13H/03H end or cancel the line. A line whose first character is ":" is a LOCAL
+        ;   command (:ASC128,ON/OFF :AUTO80,ON/OFF :HP,ON/OFF :PTAPE,ON/OFF :STATUS :RESET);
+        ;   any other line is queued for the Cyber host.
+        ;============================================================================
+
+        ;----------------------------------------------------------------------
+        ; async_rx_isr  (0880H)
+        ;   Async receive ISR (RST 6): poll the 12 channels for RxRDY, read the
+        ;   byte via the stub tables, run it through the character handler.
+        ;----------------------------------------------------------------------
+        async_rx_isr:
+        0880 * E5         PUSH H
+        0881 * D5         PUSH D
+        0882 * C5         PUSH B
+        0883 * F5         PUSH PSW
+        0884 * 06 02      MVI B,02H
+        0886 * CD C0 0C   CALL poll_channels
+        0889 * 06 00      MVI B,00H
+        088B * CD 21 06   CALL chan_state_ptr
+        088E * FE 00      CPI 00H
+        0890 * CA B9 08   JZ L08B9
+        0893 * FE 01      CPI 01H
+        0895 * CA B9 08   JZ L08B9
+        0898 * 21 04 0C   LXI H,0C04H
+        089B * CD 45 0D   CALL indexed_call
+        089E * C3 B3 08   JMP rx_char_handler
+        L08A1:
+        08A1   21 04 0C   LXI H,0C04H
+        08A4   CD 45 0D   CALL indexed_call
+        08A7   FE 7F      CPI 7FH
+        08A9   C2 B3 08   JNZ rx_char_handler
+        08AC   06 00      MVI B,00H
+        08AE   CD 21 06   CALL chan_state_ptr
+        08B1   36 01      MVI M,01H
+
+        ;----------------------------------------------------------------------
+        ; rx_char_handler  (08B3H)
+        ;   Per-character handler: CR (0Dh), 13h and 03h end/cancel the line;
+        ;   printable bytes are buffered via 0A35h.
+        ;----------------------------------------------------------------------
+        rx_char_handler:
+        08B3 * F1         POP PSW
+        08B4 * C1         POP B
+        08B5 * D1         POP D
+        08B6 * E1         POP H
+        08B7 * FB         EI
+        08B8 * C9         RET
+        L08B9:
+        08B9 * 06 01      MVI B,01H
+        08BB * CD 21 06   CALL chan_state_ptr
+        08BE * FE 06      CPI 06H
+        08C0 * CA A1 08   JZ L08A1
+        08C3 * FE 01      CPI 01H
+        08C5 * CA A1 08   JZ L08A1
+        08C8 * 21 04 0C   LXI H,0C04H
+        08CB * CD 45 0D   CALL indexed_call
+        08CE * F5         PUSH PSW
+        08CF * 06 00      MVI B,00H
+        08D1 * CD 21 06   CALL chan_state_ptr
+        08D4 * 36 01      MVI M,01H
+        08D6 * 23         INX H
+        08D7 * 23         INX H
+        08D8 * 23         INX H
+        08D9 * 23         INX H
+        08DA * 23         INX H
+        08DB * 5E         MOV E,M
+        08DC * 23         INX H
+        08DD * 56         MOV D,M
+        08DE * F1         POP PSW
+        08DF * FE 0D      CPI 0DH
+        08E1 * CA FC 08   JZ rx_end_of_line
+        08E4 * FE 13      CPI 13H
+        08E6 * C2 2F 09   JNZ L092F
+        08E9   F5         PUSH PSW
+        08EA   E5         PUSH H
+        08EB   21 7B 42   LXI H,CHTAB_427B
+        08EE   CD 29 15   CALL tbl_get
+        08F1   A7         ANA A
+        08F2   CA 25 09   JZ L0925
+        08F5   E1         POP H
+        08F6   F1         POP PSW
+        08F7   1B         DCX D
+        08F8   1B         DCX D
+        08F9   C3 34 09   JMP L0934
+
+        ;----------------------------------------------------------------------
+        ; rx_end_of_line  (08FCH)
+        ;   End of line. If the first character is ":" (3Ah) it is a LOCAL
+        ;   command (0947h); otherwise queue the line for the Cyber host.
+        ;----------------------------------------------------------------------
+        rx_end_of_line:
+        08FC * F5         PUSH PSW
+        08FD * E5         PUSH H
+        08FE * 21 7B 42   LXI H,CHTAB_427B
+        0901 * CD 29 15   CALL tbl_get
+        0904 * A7         ANA A
+        0905 * CA 2A 09   JZ L092A
+        0908   E1         POP H
+        0909   F1         POP PSW
+        090A   D5         PUSH D
+        090B   E5         PUSH H
+        090C   C5         PUSH B
+        090D   2B         DCX H
+        090E   2B         DCX H
+        090F   2B         DCX H
+        0910   2B         DCX H
+        0911   56         MOV D,M
+        0912   2B         DCX H
+        0913   5E         MOV E,M
+        0914   13         INX D
+        0915   13         INX D
+        0916   13         INX D
+        0917   1A         LDAX D
+        0918   FE 3A      CPI 3AH
+        091A   CA 47 09   JZ exec_local_cmd
+        091D   C1         POP B
+        091E   E1         POP H
+        091F   D1         POP D
+        0920   3E 0D      MVI A,0DH
+        0922   C3 35 0A   JMP queue_to_host
+        L0925:
+        0925   E1         POP H
+        0926   F1         POP PSW
+        0927   C3 DB 09   JMP L09DB
+        L092A:
+        092A * E1         POP H
+        092B * F1         POP PSW
+        092C * C3 34 09   JMP L0934
+        L092F:
+        092F * FE 03      CPI 03H
+        0931 * C2 DB 09   JNZ L09DB
+        L0934:
+        0934 * D5         PUSH D
+        0935 * E5         PUSH H
+        0936 * C5         PUSH B
+        0937 * 2B         DCX H
+        0938 * 2B         DCX H
+        0939 * 2B         DCX H
+        093A * 2B         DCX H
+        093B * 56         MOV D,M
+        093C * 2B         DCX H
+        093D * 5E         MOV E,M
+        093E * 13         INX D
+        093F * 13         INX D
+        0940 * 13         INX D
+        0941 * 1A         LDAX D
+        0942 * FE 3A      CPI 3AH
+        0944 * C2 7A 09   JNZ L097A
+
+        ;----------------------------------------------------------------------
+        ; exec_local_cmd  (0947H)
+        ;   Match the ":" command text against the table at 169Eh (cmd_match),
+        ;   dispatch (1537h) and print the reply.
+        ;----------------------------------------------------------------------
+        exec_local_cmd:
+        0947   D5         PUSH D
+        0948   EB         XCHG
+        0949   23         INX H
+        094A   11 9E 16   LXI D,CMD_TABLE
+        094D   CD 00 15   CALL cmd_match
+        0950   CD 37 15   CALL cmd_dispatch
+        0953   CD EC 15   CALL build_reply
+        L0956:
+        0956 * D1         POP D
+        0957 * 3E 20      MVI A,20H
+        0959 * 12         STAX D
+        095A * C1         POP B
+        095B * E1         POP H
+        095C * 72         MOV M,D
+        095D * 2B         DCX H
+        095E * 73         MOV M,E
+        095F * 13         INX D
+        0960 * 12         STAX D
+        0961 * 13         INX D
+        0962 * 12         STAX D
+        0963 * 13         INX D
+        0964 * 12         STAX D
+        0965 * 13         INX D
+        0966 * 12         STAX D
+        0967 * 2B         DCX H
+        0968 * 2B         DCX H
+        0969 * 2B         DCX H
+        096A * 2B         DCX H
+        096B * 2B         DCX H
+        096C * 2B         DCX H
+        096D * 7E         MOV A,M
+        096E * FE FF      CPI FFH
+        0970 * C2 76 09   JNZ L0976
+        0973   23         INX H
+        0974   36 FF      MVI M,FFH
+        L0976:
+        0976 * D1         POP D
+        0977 * C3 B3 08   JMP rx_char_handler
+        L097A:
+        097A * 3A 9D 42   LDA LINK_DOWN
+        097D * A7         ANA A
+        097E * CA 8B 09   JZ L098B
+        0981   D5         PUSH D
+        0982   21 2A 18   LXI H,MSG_LINK_DOWN
+        0985   CD EC 15   CALL build_reply
+        0988   C3 56 09   JMP L0956
+        L098B:
+        098B * 21 8B 42   LXI H,CHTAB_428B
+        098E * CD 29 15   CALL tbl_get
+        0991 * A7         ANA A
+        0992 * C2 C0 09   JNZ L09C0
+        0995 * D5         PUSH D
+        0996 * 79         MOV A,C
+        0997 * FE 08      CPI 08H
+        0999 * F2 AA 09   JP L09AA
+        099C * 3E 36      MVI A,36H
+        099E * 32 BC 42   STA 42BCH
+        09A1 * 3E 30      MVI A,30H
+        09A3 * 81         ADD C
+        09A4 * 32 BD 42   STA 42BDH
+        09A7 * C3 B7 09   JMP L09B7
+        L09AA:
+        09AA * 3E 37      MVI A,37H
+        09AC * 32 BC 42   STA 42BCH
+        09AF * 79         MOV A,C
+        09B0 * D6 08      SUI 08H
+        09B2 * C6 30      ADI 30H
+        09B4 * 32 BD 42   STA 42BDH
+        L09B7:
+        09B7 * 21 9E 42   LXI H,429EH
+        09BA * CD EC 15   CALL build_reply
+        09BD * C3 56 09   JMP L0956
+        L09C0:
+        09C0 * C1         POP B
+        09C1 * E1         POP H
+        09C2 * D1         POP D
+        09C3 * C3 C6 09   JMP L09C6
+        L09C6:
+        09C6 * 3E 1B      MVI A,1BH
+        09C8 * 12         STAX D
+        09C9 * 13         INX D
+        09CA * 3E 42      MVI A,42H
+        09CC * 12         STAX D
+        09CD * 13         INX D
+        09CE * 72         MOV M,D
+        09CF * 2B         DCX H
+        09D0 * 73         MOV M,E
+        09D1 * 2B         DCX H
+        09D2 * 2B         DCX H
+        09D3 * 2B         DCX H
+        09D4 * 2B         DCX H
+        09D5 * 2B         DCX H
+        09D6 * 36 02      MVI M,02H
+        09D8 * C3 B3 08   JMP rx_char_handler
+        L09DB:
+        09DB * FE 01      CPI 01H
+        09DD * C2 E5 09   JNZ L09E5
+        09E0   06 51      MVI B,51H
+        09E2   C3 30 0A   JMP L0A30
+        L09E5:
+        09E5 * FE 16      CPI 16H
+        09E7 * C2 EF 09   JNZ L09EF
+        09EA   06 52      MVI B,52H
+        09EC   C3 30 0A   JMP L0A30
+        L09EF:
+        09EF * FE 1B      CPI 1BH
+        09F1 * C2 F9 09   JNZ L09F9
+        09F4   3E 54      MVI A,54H
+        09F6   C3 30 0A   JMP L0A30
+        L09F9:
+        09F9 * FE 08      CPI 08H
+        09FB * C2 35 0A   JNZ queue_to_host
+        09FE   1B         DCX D
+        09FF   E5         PUSH H
+        0A00   D5         PUSH D
+        0A01   2B         DCX H
+        0A02   2B         DCX H
+        0A03   2B         DCX H
+        0A04   2B         DCX H
+        0A05   56         MOV D,M
+        0A06   2B         DCX H
+        0A07   5E         MOV E,M
+        0A08   13         INX D
+        0A09   13         INX D
+        0A0A   E1         POP H
+        0A0B   E5         PUSH H
+        0A0C   7B         MOV A,E
+        0A0D   95         SUB L
+        0A0E   7A         MOV A,D
+        0A0F   9C         SBB H
+        0A10   DA 20 0A   JC L0A20
+        0A13   D1         POP D
+        0A14   E1         POP H
+        L0A15:
+        0A15   3E 0C      MVI A,0CH
+        0A17   21 33 0C   LXI H,0C33H
+        0A1A   CD 45 0D   CALL indexed_call
+        0A1D   C3 B3 08   JMP rx_char_handler
+        L0A20:
+        0A20   D1         POP D
+        0A21   E1         POP H
+        0A22   1B         DCX D
+        0A23   1A         LDAX D
+        0A24   FE 1B      CPI 1BH
+        0A26   13         INX D
+        0A27   CA 15 0A   JZ L0A15
+        0A2A   72         MOV M,D
+        0A2B   2B         DCX H
+        0A2C   73         MOV M,E
+        0A2D   C3 B3 08   JMP rx_char_handler
+        L0A30:
+        0A30   3E 1B      MVI A,1BH
+        0A32   12         STAX D
+        0A33   13         INX D
+        0A34   78         MOV A,B
+
+        ;============================================================================
+        ; 0A35-0C03  LINE QUEUEING TO THE HOST, OUTPUT FORMATTING AND CHANNEL OUTPUT
+        ;============================================================================
+
+        ;----------------------------------------------------------------------
+        ; queue_to_host  (0A35H)
+        ;   Append a character/line to the channel buffer queued for the Cyber
+        ;   host; or print [CYBER LINK DOWN] when the link is down.
+        ;----------------------------------------------------------------------
+        queue_to_host:
+        0A35 * 12         STAX D
+        0A36 * 13         INX D
+        0A37 * D5         PUSH D
+        0A38 * E5         PUSH H
+        0A39 * 2B         DCX H
+        0A3A * 2B         DCX H
+        0A3B * 13         INX D
+        0A3C * 13         INX D
+        0A3D * 13         INX D
+        0A3E * 2B         DCX H
+        0A3F * 7B         MOV A,E
+        0A40 * 96         SUB M
+        0A41 * 7A         MOV A,D
+        0A42 * 23         INX H
+        0A43 * 9E         SBB M
+        0A44 * DA 54 0A   JC L0A54
+        0A47   3E 0D      MVI A,0DH
+        0A49   21 33 0C   LXI H,0C33H
+        0A4C   CD 45 0D   CALL indexed_call
+        0A4F   E1         POP H
+        0A50   D1         POP D
+        0A51   C3 34 09   JMP L0934
+        L0A54:
+        0A54 * E1         POP H
+        0A55 * D1         POP D
+        0A56 * 72         MOV M,D
+        0A57 * 2B         DCX H
+        0A58 * 73         MOV M,E
+        0A59 * C3 B3 08   JMP rx_char_handler
+        L0A5C:
+        0A5C * 06 01      MVI B,01H
+        0A5E * CD 21 06   CALL chan_state_ptr
+        0A61 * FE 06      CPI 06H
+        0A63 * CA 7A 0A   JZ L0A7A
+        0A66 * FE 01      CPI 01H
+        0A68 * CA A0 0A   JZ L0AA0
+        L0A6B:
+        0A6B * 79         MOV A,C
+        0A6C * FE 0B      CPI 0BH
+        0A6E * F2 75 0A   JP L0A75
+        0A71 * 0C         INR C
+        0A72 * C3 5C 0A   JMP L0A5C
+        L0A75:
+        0A75 * 0E 00      MVI C,00H
+        0A77 * C3 5C 0A   JMP L0A5C
+        L0A7A:
+        0A7A * E5         PUSH H
+        0A7B * D5         PUSH D
+        0A7C * 23         INX H
+        0A7D * 23         INX H
+        0A7E * 23         INX H
+        0A7F * 23         INX H
+        0A80 * 23         INX H
+        0A81 * 5E         MOV E,M
+        0A82 * 23         INX H
+        0A83 * 56         MOV D,M
+        0A84 * 23         INX H
+        0A85 * 7E         MOV A,M
+        0A86 * 23         INX H
+        0A87 * BB         CMP E
+        0A88 * C2 97 0A   JNZ L0A97
+        0A8B ? 7E         MOV A,M
+        0A8C ? BA         CMP D
+        0A8D ? C2 97 0A   JNZ L0A97
+        0A90 ? D1         POP D
+        0A91 ? E1         POP H
+        0A92 ? 36 05      MVI M,05H
+        0A94 ? C3 6B 0A   JMP L0A6B
+        L0A97:
+        0A97 * CD 65 0D   CALL get_chtab_424b
+        0A9A * 36 FE      MVI M,FEH
+        0A9C * D1         POP D
+        0A9D * E1         POP H
+        0A9E * 36 01      MVI M,01H
+        L0AA0:
+        0AA0 * E5         PUSH H
+        0AA1 * 21 62 0C   LXI H,0C62H
+        0AA4 * CD 45 0D   CALL indexed_call
+        0AA7 * E1         POP H
+        0AA8 * E6 01      ANI 01H
+        0AAA * CA 6B 0A   JZ L0A6B
+        0AAD * 23         INX H
+        0AAE * 23         INX H
+        0AAF * 23         INX H
+        0AB0 * 23         INX H
+        0AB1 * 23         INX H
+        0AB2 * 23         INX H
+        0AB3 * 23         INX H
+        0AB4 * 5E         MOV E,M
+        0AB5 * 23         INX H
+        0AB6 * 56         MOV D,M
+        0AB7 * 1A         LDAX D
+        0AB8 * FE 1B      CPI 1BH
+        0ABA * CA 52 0B   JZ L0B52
+        0ABD * E5         PUSH H
+        0ABE * F5         PUSH PSW
+        0ABF * CD 65 0D   CALL get_chtab_424b
+        0AC2 * 34         INR M
+        0AC3 * 3E 50      MVI A,50H
+        0AC5 * BE         CMP M
+        0AC6 * C2 E2 0A   JNZ L0AE2
+        0AC9 ? 36 00      MVI M,00H
+        0ACB ? CD 6F 0D   CALL get_chtab_425b
+        0ACE ? A7         ANA A
+        0ACF ? CA E2 0A   JZ L0AE2
+        0AD2 ? 13         INX D
+        0AD3 ? 1A         LDAX D
+        0AD4 ? FE 1B      CPI 1BH
+        0AD6 ? 1B         DCX D
+        0AD7 ? CA E2 0A   JZ L0AE2
+        0ADA ? 3E 41      MVI A,41H
+        0ADC ? 12         STAX D
+        0ADD ? 1B         DCX D
+        0ADE ? 3E 1B      MVI A,1BH
+        0AE0 ? 12         STAX D
+        0AE1 ? 1B         DCX D
+        L0AE2:
+        0AE2 * CD 5B 0D   CALL get_chtab_423b
+        0AE5 * A7         ANA A
+        0AE6 * CA 2D 0B   JZ L0B2D
+        0AE9 ? F1         POP PSW
+        0AEA ? F5         PUSH PSW
+        0AEB ? FE 7E      CPI 7EH
+        0AED ? C2 17 0B   JNZ L0B17
+        0AF0 ? CD 65 0D   CALL get_chtab_424b
+        0AF3 ? FE 00      CPI 00H
+        0AF5 ? CA 02 0B   JZ L0B02
+        0AF8 ? CD 51 0D   CALL get_chtab_422b
+        0AFB ? 36 01      MVI M,01H
+        0AFD ? F1         POP PSW
+        0AFE ? E1         POP H
+        0AFF ? C3 31 0B   JMP L0B31
+        0B02 ? 36 00      MVI M,00H
+        0B04 ? CD 51 0D   CALL get_chtab_422b
+        0B07 ? E5         PUSH H
+        0B08 ? CD 6F 0D   CALL get_chtab_425b
+        0B0B ? A7         ANA A
+        0B0C ? E1         POP H
+        0B0D ? 36 01      MVI M,01H
+        0B0F ? C2 FD 0A   JNZ L0AFD
+        0B12 ? 36 00      MVI M,00H
+        0B14 ? C3 FD 0A   JMP L0AFD
+        0B17 ? CD 51 0D   CALL get_chtab_422b
+        0B1A ? A7         ANA A
+        0B1B ? CA 2D 0B   JZ L0B2D
+        0B1E ? 36 00      MVI M,00H
+        0B20 ? F1         POP PSW
+        0B21 ? EE 40      XRI 40H
+        L0B23:
+        0B23 * 21 33 0C   LXI H,0C33H
+        0B26 * CD 45 0D   CALL indexed_call
+        0B29 * E1         POP H
+        0B2A * C3 31 0B   JMP L0B31
+        L0B2D:
+        0B2D * F1         POP PSW
+        0B2E * C3 23 0B   JMP L0B23
+        L0B31:
+        0B31 * E5         PUSH H
+        0B32 * 13         INX D
+        0B33 * 2B         DCX H
+        0B34 * 2B         DCX H
+        0B35 * 7E         MOV A,M
+        0B36 * 2B         DCX H
+        0B37 * BA         CMP D
+        0B38 * C2 4B 0B   JNZ L0B4B
+        0B3B * 7E         MOV A,M
+        0B3C * BB         CMP E
+        0B3D * C2 4B 0B   JNZ L0B4B
+        0B40 * 2B         DCX H
+        0B41 * 2B         DCX H
+        0B42 * 2B         DCX H
+        0B43 * 2B         DCX H
+        0B44 * 2B         DCX H
+        0B45 * 36 05      MVI M,05H
+        0B47 * E1         POP H
+        0B48 * C3 6B 0A   JMP L0A6B
+        L0B4B:
+        0B4B * E1         POP H
+        0B4C * 72         MOV M,D
+        0B4D * 2B         DCX H
+        0B4E * 73         MOV M,E
+        0B4F * C3 6B 0A   JMP L0A6B
+        L0B52:
+        0B52 * 13         INX D
+        0B53 * 1A         LDAX D
+        0B54 * FE 51      CPI 51H
+        0B56 * F2 61 0B   JP L0B61
+        0B59 * FE 41      CPI 41H
+        0B5B * F2 89 0B   JP L0B89
+        0B5E ? C3 31 0B   JMP L0B31
+        L0B61:
+        0B61 ? FE 51      CPI 51H
+        0B63 ? C2 6B 0B   JNZ L0B6B
+        0B66 ? 3E 01      MVI A,01H
+        0B68 ? C3 BD 0A   JMP L0ABD
+        0B6B ? FE 52      CPI 52H
+        0B6D ? C2 75 0B   JNZ L0B75
+        0B70 ? 3E 16      MVI A,16H
+        0B72 ? C3 BD 0A   JMP L0ABD
+        0B75 ? FE 53      CPI 53H
+        0B77 ? C2 7F 0B   JNZ L0B7F
+        0B7A ? 3E 03      MVI A,03H
+        0B7C ? C3 BD 0A   JMP L0ABD
+        0B7F ? FE 54      CPI 54H
+        0B81 ? C2 31 0B   JNZ L0B31
+        0B84 ? 3E 1B      MVI A,1BH
+        0B86 ? C3 BD 0A   JMP L0ABD
+        L0B89:
+        0B89 * FE 42      CPI 42H
+        0B8B * F2 E5 0B   JP L0BE5
+        0B8E * E5         PUSH H
+        0B8F * CD 5B 0D   CALL get_chtab_423b
+        0B92 * A7         ANA A
+        0B93 * CA B0 0B   JZ L0BB0
+        0B96 ? CD 51 0D   CALL get_chtab_422b
+        0B99 ? A7         ANA A
+        0B9A ? CA B0 0B   JZ L0BB0
+        0B9D ? CD 65 0D   CALL get_chtab_424b
+        0BA0 ? FE 00      CPI 00H
+        0BA2 ? DA C6 0B   JC L0BC6
+        0BA5 ? 36 00      MVI M,00H
+        0BA7 ? CD 51 0D   CALL get_chtab_422b
+        0BAA ? 36 00      MVI M,00H
+        0BAC ? E1         POP H
+        0BAD ? C3 31 0B   JMP L0B31
+        L0BB0:
+        0BB0 * CD 65 0D   CALL get_chtab_424b
+        0BB3 * FE 01      CPI 01H
+        0BB5 * D2 C6 0B   JNC L0BC6
+        0BB8 ? CD 6F 0D   CALL get_chtab_425b
+        0BBB ? A7         ANA A
+        0BBC ? CA DF 0B   JZ L0BDF
+        0BBF ? CD 51 0D   CALL get_chtab_422b
+        0BC2 ? A7         ANA A
+        0BC3 ? C2 DF 0B   JNZ L0BDF
+        L0BC6:
+        0BC6 * CD 51 0D   CALL get_chtab_422b
+        0BC9 * 36 00      MVI M,00H
+        0BCB * CD 65 0D   CALL get_chtab_424b
+        0BCE * 36 00      MVI M,00H
+        0BD0 * 3E 0D      MVI A,0DH
+        0BD2 * 21 33 0C   LXI H,0C33H
+        0BD5 * CD 45 0D   CALL indexed_call
+        0BD8 * 3E 42      MVI A,42H
+        0BDA * 12         STAX D
+        0BDB * E1         POP H
+        0BDC * C3 6B 0A   JMP L0A6B
+        0BDF ? CD 65 0D   CALL get_chtab_424b
+        0BE2 ? C3 A5 0B   JMP L0BA5
+        L0BE5:
+        0BE5 * FE 46      CPI 46H
+        0BE7 * C2 F7 0B   JNZ L0BF7
+        0BEA * 3E 0A      MVI A,0AH
+        0BEC * E5         PUSH H
+        0BED * 21 33 0C   LXI H,0C33H
+        0BF0 * CD 45 0D   CALL indexed_call
+        0BF3 * E1         POP H
+        0BF4 * C3 31 0B   JMP L0B31
+        L0BF7:
+        0BF7 * 3C         INR A
+        0BF8 * 12         STAX D
+        0BF9 * 3E 00      MVI A,00H
+        0BFB * 21 33 0C   LXI H,0C33H
+        0BFE * CD 45 0D   CALL indexed_call
+        0C01 * C3 6B 0A   JMP L0A6B
+
+        ;============================================================================
+        ; 0C04-0CBF  INDEXED I/O STUB TABLES (4 BYTES PER CHANNEL)
+        ;   Entered through indexed_call (0D45H): IN/OUT port; RET; NOP.
+        ;============================================================================
+
+        stub_in_data:
+        0C04 * DB 60 C9 00   IN UART0_DATA      ; RET ; NOP pad ; channel 0
+        0C08 * DB 62 C9 00   IN UART1_DATA      ; RET ; NOP pad ; channel 1
+        0C0C * DB 64 C9 00   IN UART2_DATA      ; RET ; NOP pad ; channel 2
+        0C10 * DB 66 C9 00   IN UART3_DATA      ; RET ; NOP pad ; channel 3
+        0C14 * DB 68 C9 00   IN UART4_DATA      ; RET ; NOP pad ; channel 4
+        0C18 * DB 6A C9 00   IN UART5_DATA      ; RET ; NOP pad ; channel 5
+        0C1C * DB 6C C9 00   IN UART6_DATA      ; RET ; NOP pad ; channel 6
+        0C20 * DB 6E C9 00   IN UART7_DATA      ; RET ; NOP pad ; channel 7
+        0C24 * DB 70 C9 00   IN UART8_DATA      ; RET ; NOP pad ; channel 8
+        0C28 * DB 72 C9 00   IN UART9_DATA      ; RET ; NOP pad ; channel 9
+        0C2C * DB 74 C9 00   IN UART10_DATA     ; RET ; NOP pad ; channel 10
+        0C30 * DB 76 C9      IN UART11_DATA     ; RET ; channel 11
+
+        stub_out_data:
+        0C33 * D3 60 C9 00   OUT UART0_DATA     ; RET ; NOP pad ; channel 0
+        0C37 * D3 62 C9 00   OUT UART1_DATA     ; RET ; NOP pad ; channel 1
+        0C3B * D3 64 C9 00   OUT UART2_DATA     ; RET ; NOP pad ; channel 2
+        0C3F * D3 66 C9 00   OUT UART3_DATA     ; RET ; NOP pad ; channel 3
+        0C43 * D3 68 C9 00   OUT UART4_DATA     ; RET ; NOP pad ; channel 4
+        0C47 * D3 6A C9 00   OUT UART5_DATA     ; RET ; NOP pad ; channel 5
+        0C4B * D3 6C C9 00   OUT UART6_DATA     ; RET ; NOP pad ; channel 6
+        0C4F * D3 6E C9 00   OUT UART7_DATA     ; RET ; NOP pad ; channel 7
+        0C53 * D3 70 C9 00   OUT UART8_DATA     ; RET ; NOP pad ; channel 8
+        0C57 * D3 72 C9 00   OUT UART9_DATA     ; RET ; NOP pad ; channel 9
+        0C5B * D3 74 C9 00   OUT UART10_DATA    ; RET ; NOP pad ; channel 10
+        0C5F * D3 76 C9      OUT UART11_DATA    ; RET ; channel 11
+
+        stub_in_status:
+        0C62 * DB 61 C9 00   IN UART0_CTL       ; RET ; NOP pad ; channel 0
+        0C66 * DB 63 C9 00   IN UART1_CTL       ; RET ; NOP pad ; channel 1
+        0C6A * DB 65 C9 00   IN UART2_CTL       ; RET ; NOP pad ; channel 2
+        0C6E * DB 67 C9 00   IN UART3_CTL       ; RET ; NOP pad ; channel 3
+        0C72 * DB 69 C9 00   IN UART4_CTL       ; RET ; NOP pad ; channel 4
+        0C76 * DB 6B C9 00   IN UART5_CTL       ; RET ; NOP pad ; channel 5
+        0C7A * DB 6D C9 00   IN UART6_CTL       ; RET ; NOP pad ; channel 6
+        0C7E * DB 6F C9 00   IN UART7_CTL       ; RET ; NOP pad ; channel 7
+        0C82 * DB 71 C9 00   IN UART8_CTL       ; RET ; NOP pad ; channel 8
+        0C86 * DB 73 C9 00   IN UART9_CTL       ; RET ; NOP pad ; channel 9
+        0C8A * DB 75 C9 00   IN UART10_CTL      ; RET ; NOP pad ; channel 10
+        0C8E * DB 77 C9      IN UART11_CTL      ; RET ; channel 11
+
+        stub_out_ctl:
+        0C91 * D3 61 C9 00   OUT UART0_CTL      ; RET ; NOP pad ; channel 0
+        0C95 * D3 63 C9 00   OUT UART1_CTL      ; RET ; NOP pad ; channel 1
+        0C99 * D3 65 C9 00   OUT UART2_CTL      ; RET ; NOP pad ; channel 2
+        0C9D * D3 67 C9 00   OUT UART3_CTL      ; RET ; NOP pad ; channel 3
+        0CA1 * D3 69 C9 00   OUT UART4_CTL      ; RET ; NOP pad ; channel 4
+        0CA5 * D3 6B C9 00   OUT UART5_CTL      ; RET ; NOP pad ; channel 5
+        0CA9 * D3 6D C9 00   OUT UART6_CTL      ; RET ; NOP pad ; channel 6
+        0CAD * D3 6F C9 00   OUT UART7_CTL      ; RET ; NOP pad ; channel 7
+        0CB1 * D3 71 C9 00   OUT UART8_CTL      ; RET ; NOP pad ; channel 8
+        0CB5 * D3 73 C9 00   OUT UART9_CTL      ; RET ; NOP pad ; channel 9
+        0CB9 * D3 75 C9 00   OUT UART10_CTL     ; RET ; NOP pad ; channel 10
+        0CBD * D3 77 C9      OUT UART11_CTL     ; RET ; channel 11
+
+        ;============================================================================
+        ; 0CC0-0D9F  CHANNEL POLLING, INDEXED CALL AND TABLE ACCESSORS
+        ;============================================================================
+
+        ;----------------------------------------------------------------------
+        ; poll_channels  (0CC0H)
+        ;   Scan the 12 channel status ports for (status AND B) != 0. Returns
+        ;   channel number in C; jumps to 08B3h if none.
+        ;----------------------------------------------------------------------
+        poll_channels:
+        0CC0 * 0E 0B      MVI C,0BH
+        0CC2 * 0C         INR C
+        0CC3 * DB 61      IN UART0_CTL
+        0CC5 * A0         ANA B
+        0CC6 * C2 3B 0D   JNZ L0D3B
+        0CC9 * 0D         DCR C
+        0CCA * CA 41 0D   JZ L0D41
+        0CCD * DB 63      IN UART1_CTL
+        0CCF * A0         ANA B
+        0CD0 * C2 3B 0D   JNZ L0D3B
+        0CD3 * 0D         DCR C
+        0CD4 * CA 41 0D   JZ L0D41
+        0CD7 * DB 65      IN UART2_CTL
+        0CD9 * A0         ANA B
+        0CDA * C2 3B 0D   JNZ L0D3B
+        0CDD * 0D         DCR C
+        0CDE * CA 41 0D   JZ L0D41
+        0CE1 * DB 67      IN UART3_CTL
+        0CE3 * A0         ANA B
+        0CE4 * C2 3B 0D   JNZ L0D3B
+        0CE7 * 0D         DCR C
+        0CE8 * CA 41 0D   JZ L0D41
+        0CEB * DB 69      IN UART4_CTL
+        0CED * A0         ANA B
+        0CEE * C2 3B 0D   JNZ L0D3B
+        0CF1 * 0D         DCR C
+        0CF2 * CA 41 0D   JZ L0D41
+        0CF5 * DB 6B      IN UART5_CTL
+        0CF7 * A0         ANA B
+        0CF8 * C2 3B 0D   JNZ L0D3B
+        0CFB * 0D         DCR C
+        0CFC * CA 41 0D   JZ L0D41
+        0CFF * DB 6D      IN UART6_CTL
+        0D01 * A0         ANA B
+        0D02 * C2 3B 0D   JNZ L0D3B
+        0D05 * 0D         DCR C
+        0D06 * CA 41 0D   JZ L0D41
+        0D09 * DB 6F      IN UART7_CTL
+        0D0B * A0         ANA B
+        0D0C * C2 3B 0D   JNZ L0D3B
+        0D0F * 0D         DCR C
+        0D10 * CA 41 0D   JZ L0D41
+        0D13 * DB 71      IN UART8_CTL
+        0D15 * A0         ANA B
+        0D16 * C2 3B 0D   JNZ L0D3B
+        0D19 * 0D         DCR C
+        0D1A * CA 41 0D   JZ L0D41
+        0D1D * DB 73      IN UART9_CTL
+        0D1F * A0         ANA B
+        0D20 * C2 3B 0D   JNZ L0D3B
+        0D23 * 0D         DCR C
+        0D24 * CA 41 0D   JZ L0D41
+        0D27 * DB 75      IN UART10_CTL
+        0D29 * A0         ANA B
+        0D2A * C2 3B 0D   JNZ L0D3B
+        0D2D * 0D         DCR C
+        0D2E * CA 41 0D   JZ L0D41
+        0D31 * DB 77      IN UART11_CTL
+        0D33 * A0         ANA B
+        0D34 * C2 3B 0D   JNZ L0D3B
+        0D37   0D         DCR C
+        0D38   CA 41 0D   JZ L0D41
+        L0D3B:
+        0D3B * 3E 0B      MVI A,0BH
+        0D3D * 3C         INR A
+        0D3E * 91         SUB C
+        0D3F * 4F         MOV C,A
+        0D40 * C9         RET
+        L0D41:
+        0D41   E1         POP H
+        0D42   C3 B3 08   JMP rx_char_handler
+
+        ;----------------------------------------------------------------------
+        ; indexed_call  (0D45H)
+        ;   Computed jump: HL=table base, C=channel -> jumps to HL+4*C with A
+        ;   preserved (used with the stub tables above).
+        ;----------------------------------------------------------------------
+        indexed_call:
+        0D45 * 47         MOV B,A
+        0D46 * 79         MOV A,C
+        0D47 * 07         RLC
+        0D48 * 07         RLC
+        0D49 * D5         PUSH D
+        0D4A * 5F         MOV E,A
+        0D4B * 16 00      MVI D,00H
+        0D4D * 19         DAD D
+        0D4E * D1         POP D
+        0D4F * 78         MOV A,B
+        0D50 * E9         PCHL
+
+        ;----------------------------------------------------------------------
+        ; get_chtab_422b  (0D51H)
+        ;   Get byte C of the 16-byte table at 422Bh.
+        ;----------------------------------------------------------------------
+        get_chtab_422b:
+        0D51 * C5         PUSH B
+        0D52 * 06 00      MVI B,00H
+        0D54 * 21 2B 42   LXI H,CHTAB_422B
+        0D57 * 09         DAD B
+        0D58 * 7E         MOV A,M
+        0D59 * C1         POP B
+        0D5A * C9         RET
+
+        ;----------------------------------------------------------------------
+        ; get_chtab_423b  (0D5BH)
+        ;   Get byte C of the 16-byte table at 423Bh.
+        ;----------------------------------------------------------------------
+        get_chtab_423b:
+        0D5B * C5         PUSH B
+        0D5C * 06 00      MVI B,00H
+        0D5E * 21 3B 42   LXI H,CHTAB_423B
+        0D61 * 09         DAD B
+        0D62 * 7E         MOV A,M
+        0D63 * C1         POP B
+        0D64 * C9         RET
+
+        ;----------------------------------------------------------------------
+        ; get_chtab_424b  (0D65H)
+        ;   Get byte C of the 16-byte table at 424Bh.
+        ;----------------------------------------------------------------------
+        get_chtab_424b:
+        0D65 * C5         PUSH B
+        0D66 * 06 00      MVI B,00H
+        0D68 * 21 4B 42   LXI H,CHTAB_424B
+        0D6B * 09         DAD B
+        0D6C * 7E         MOV A,M
+        0D6D * C1         POP B
+        0D6E * C9         RET
+
+        ;----------------------------------------------------------------------
+        ; get_chtab_425b  (0D6FH)
+        ;   Get byte C of the 16-byte table at 425Bh.
+        ;----------------------------------------------------------------------
+        get_chtab_425b:
+        0D6F   C5         PUSH B
+        0D70   06 00      MVI B,00H
+        0D72   21 5B 42   LXI H,CHTAB_425B
+        0D75   09         DAD B
+        0D76   7E         MOV A,M
+        0D77   C1         POP B
+        0D78   C9         RET
+        0D79            DB   76H x 39  ; padding (HLT)
+
+        ;============================================================================
+        ; 0DA0-0F6B  BOOT AND SELF-TEST
+        ;   ROM checksum (0000-1A2F vs byte 1A30), RAM test of 4000-BFFF (write pattern, verify,
+        ;   complement, verify), error reporting through UART 0, then the error text below.
+        ;============================================================================
+
+        ;----------------------------------------------------------------------
+        ; boot  (0DA0H)
+        ;   Boot: system latch := 0, UART0 reset, ROM checksum (0000h-1A2Fh vs
+        ;   byte at 1A30h), RAM test 4000h-BFFFh, then peripheral/data init.
+        ;----------------------------------------------------------------------
+        boot:
+        0DA0 * F3         DI
+        0DA1 * 3E 00      MVI A,00H
+        0DA3 * D3 FE      OUT SYSCTL                 ; system control latch := 0
+        0DA5 * 3E 03      MVI A,03H
+        0DA7 * D3 61      OUT UART0_CTL              ; 8251: dummy/flush
+        0DA9 * 3E 53      MVI A,53H
+        0DAB * D3 61      OUT UART0_CTL              ; 8251: RESET (IR=1)
+        0DAD * 3E FA      MVI A,FAH
+        0DAF * D3 61      OUT UART0_CTL              ; 8251: mode: 7 bits, even parity, 2 stop, x16
+        0DB1 * 3E 25      MVI A,25H
+        0DB3 * D3 61      OUT UART0_CTL              ; 8251: command: TxEN RxE RTS
+        0DB5 * DB 60      IN UART0_DATA              ; dummy read of UART0 data
+        0DB7 * 11 30 1A   LXI D,1A30H                ; DE := address of the stored checksum byte
+        0DBA * 21 00 00   LXI H,0000H                ; HL := 0000H (start of ROM)
+        0DBD * 0E 00      MVI C,00H
+        L0DBF:
+        0DBF * 79         MOV A,C
+        0DC0 * 86         ADD M                      ; C := C + ROM byte
+        0DC1 * 4F         MOV C,A
+        0DC2 * 23         INX H
+        0DC3 * 7C         MOV A,H
+        0DC4 * BA         CMP D
+        0DC5 * C2 BF 0D   JNZ L0DBF
+        0DC8 * 7D         MOV A,L
+        0DC9 * BB         CMP E
+        0DCA * C2 BF 0D   JNZ L0DBF
+        0DCD * 79         MOV A,C                    ; C = computed checksum
+        0DCE * 77         MOV M,A                    ; write to ROM is ignored by the hardware
+        0DCF * BE         CMP M                      ; compare with the stored byte at 1A30H
+        0DD0 * CA D9 0D   JZ L0DD9
+        0DD3   21 C5 0E   LXI H,TXT_PROM_ERR         ; checksum error: report and stop
+        0DD6   C3 95 0E   JMP print_string_uart0
+        L0DD9:
+        0DD9 * 11 00 00   LXI D,0000H                ; RAM pass 1: store an incrementing 16-bit counter (DE) over 4000H-BFFFH
+        0DDC * 21 00 40   LXI H,TIMESLICE
+        L0DDF:
+        0DDF * 73         MOV M,E
+        0DE0 * 23         INX H
+        0DE1 * 72         MOV M,D
+        0DE2 * 23         INX H
+        0DE3 * 13         INX D
+        0DE4 * 7C         MOV A,H
+        0DE5 * FE C0      CPI C0H
+        0DE7 * C2 DF 0D   JNZ L0DDF
+        0DEA * 11 00 00   LXI D,0000H                ; RAM pass 2: verify the counter pattern
+        0DED * 21 00 40   LXI H,TIMESLICE
+        L0DF0:
+        0DF0 * 7E         MOV A,M
+        0DF1 * BB         CMP E
+        0DF2 * C2 36 0E   JNZ ram_error_report
+        0DF5 * 23         INX H
+        0DF6 * 7E         MOV A,M
+        0DF7 * BA         CMP D
+        0DF8 * C2 36 0E   JNZ ram_error_report
+        0DFB * 23         INX H
+        0DFC * 13         INX D
+        0DFD * 7C         MOV A,H
+        0DFE * FE C0      CPI C0H
+        0E00 * C2 F0 0D   JNZ L0DF0
+        0E03 * 11 00 00   LXI D,0000H                ; RAM pass 3: store the complement of the counter
+        0E06 * 21 00 40   LXI H,TIMESLICE
+        L0E09:
+        0E09 * 7B         MOV A,E
+        0E0A * 2F         CMA
+        0E0B * 77         MOV M,A
+        0E0C * 23         INX H
+        0E0D * 7A         MOV A,D
+        0E0E * 2F         CMA
+        0E0F * 77         MOV M,A
+        0E10 * 23         INX H
+        0E11 * 13         INX D
+        0E12 * 7C         MOV A,H
+        0E13 * FE C0      CPI C0H
+        0E15 * C2 09 0E   JNZ L0E09
+        0E18 * 11 00 00   LXI D,0000H                ; RAM pass 4: verify the complement
+        0E1B * 21 00 40   LXI H,TIMESLICE
+        L0E1E:
+        0E1E * 7E         MOV A,M
+        0E1F * 2F         CMA
+        0E20 * BB         CMP E
+        0E21 * C2 36 0E   JNZ ram_error_report
+        0E24 * 23         INX H
+        0E25 * 7E         MOV A,M
+        0E26 * 2F         CMA
+        0E27 * BA         CMP D
+        0E28 * C2 36 0E   JNZ ram_error_report
+        0E2B * 23         INX H
+        0E2C * 13         INX D
+        0E2D * 7C         MOV A,H
+        0E2E * FE C0      CPI C0H
+        0E30 * C2 1E 0E   JNZ L0E1E
+        0E33 * C3 6C 0F   JMP boot_init              ; self-test passed -> boot_init
+
+        ;----------------------------------------------------------------------
+        ; ram_error_report  (0E36H)
+        ;   RAM test failed: print the error banner and the failing 4K area
+        ;   through UART0.
+        ;----------------------------------------------------------------------
+        ram_error_report:
+        0E36   7C         MOV A,H
+        0E37   FE 30      CPI 30H
+        0E39   FA 65 0E   JM L0E65
+        0E3C   FE 40      CPI 40H
+        0E3E   FA 6B 0E   JM L0E6B
+        0E41   FE 50      CPI 50H
+        0E43   FA 71 0E   JM L0E71
+        0E46   FE 60      CPI 60H
+        0E48   FA 77 0E   JM L0E77
+        0E4B   FE 70      CPI 70H
+        0E4D   FA 7D 0E   JM L0E7D
+        0E50   FE 80      CPI 80H
+        0E52   FA 83 0E   JM L0E83
+        0E55   FE 90      CPI 90H
+        0E57   FA 89 0E   JM L0E89
+        0E5A   FE A0      CPI A0H
+        0E5C   FA 8F 0E   JM L0E8F
+        0E5F   21 66 0F   LXI H,0F66H
+        0E62   C3 95 0E   JMP print_string_uart0
+        L0E65:
+        0E65   21 16 0F   LXI H,0F16H
+        0E68   C3 95 0E   JMP print_string_uart0
+        L0E6B:
+        0E6B   21 20 0F   LXI H,0F20H
+        0E6E   C3 95 0E   JMP print_string_uart0
+        L0E71:
+        0E71   21 2A 0F   LXI H,0F2AH
+        0E74   C3 95 0E   JMP print_string_uart0
+        L0E77:
+        0E77   21 34 0F   LXI H,0F34H
+        0E7A   C3 95 0E   JMP print_string_uart0
+        L0E7D:
+        0E7D   21 3E 0F   LXI H,0F3EH
+        0E80   C3 95 0E   JMP print_string_uart0
+        L0E83:
+        0E83   21 48 0F   LXI H,0F48H
+        0E86   C3 95 0E   JMP print_string_uart0
+        L0E89:
+        0E89   21 52 0F   LXI H,0F52H
+        0E8C   C3 95 0E   JMP print_string_uart0
+        L0E8F:
+        0E8F   21 5C 0F   LXI H,0F5CH
+        0E92   C3 95 0E   JMP print_string_uart0
+
+        ;----------------------------------------------------------------------
+        ; print_string_uart0  (0E95H)
+        ;   Print a NUL-terminated string at HL on UART0 (waits for TxRDY on
+        ;   port 61h).
+        ;----------------------------------------------------------------------
+        print_string_uart0:
+        0E95   EB         XCHG
+        0E96   21 E9 0E   LXI H,TXT_RAM_ERR
+        L0E99:
+        0E99   7E         MOV A,M
+        0E9A   4F         MOV C,A
+        0E9B   FE 24      CPI 24H
+        0E9D   CA B3 0E   JZ L0EB3
+        0EA0   FE 00      CPI 00H
+        0EA2   CA B7 0E   JZ L0EB7
+        L0EA5:
+        0EA5   DB 61      IN UART0_CTL
+        0EA7   E6 01      ANI 01H
+        0EA9   CA A5 0E   JZ L0EA5
+        0EAC   79         MOV A,C
+        0EAD   D3 60      OUT UART0_DATA
+        0EAF   23         INX H
+        0EB0   C3 99 0E   JMP L0E99
+        L0EB3:
+        0EB3   EB         XCHG
+        0EB4   C3 99 0E   JMP L0E99
+        L0EB7:
+        0EB7   DB 61      IN UART0_CTL
+        0EB9   E6 01      ANI 01H
+        0EBB   CA B7 0E   JZ L0EB7
+        0EBE   3E 07      MVI A,07H
+        0EC0   D3 60      OUT UART0_DATA
+        0EC2   C3 B7 0E   JMP L0EB7
+
+        ; ---- self-test error text (NUL terminated, printed through UART 0) ----
+        TXT_PROM_ERR:
+        0EC5            DB   '** ERROR IN PROM MEMORY DETECTED **',00H
+        TXT_RAM_ERR:
+        0EE9            DB   '** ERROR IN RAM MEMORY DETECTED IN HEX AREA $2000-3000',00H
+        AREA_3000:
+        0F20            DB   '3000-4000',00H
+        AREA_4000:
+        0F2A            DB   '4000-5000',00H
+        AREA_5000:
+        0F34            DB   '5000-6000',00H
+        AREA_6000:
+        0F3E            DB   '6000-7000',00H
+        AREA_7000:
+        0F48            DB   '7000-8000',00H
+        AREA_8000:
+        0F52            DB   '8000-9000',00H
+        AREA_9000:
+        0F5C            DB   '9000-A000',00H
+        AREA_A000:
+        0F66            DB   '>A000',00H
+
+        ;============================================================================
+        ; 0F6C-0FFF  BOOT: SYSTEM INITIALISATION
+        ;   SP := 4054H, copy 121H bytes from 1139H to A18AH (descriptor image), clear tables.
+        ;============================================================================
+
+        ;----------------------------------------------------------------------
+        ; boot_init  (0F6CH)
+        ;   Post-test initialisation: stack pointer, channel tables, task
+        ;   blocks.
+        ;----------------------------------------------------------------------
+        boot_init:
+        0F6C * 31 54 40   LXI SP,4054H
+        0F6F * 01 21 01   LXI B,0121H
+        0F72 * 21 8B A1   LXI H,CHSTATE_A18B
+        0F75 * 2B         DCX H
+        0F76 * 11 39 11   LXI D,DESC_IMAGE
+        0F79 * 1B         DCX D
+        L0F7A:
+        0F7A * 1A         LDAX D
+        0F7B * 77         MOV M,A
+        0F7C * 23         INX H
+        0F7D * 13         INX D
+        0F7E * 0B         DCX B
+        0F7F * 78         MOV A,B
+        0F80 * B1         ORA C
+        0F81 * C2 7A 0F   JNZ L0F7A
+        0F84 * 21 2B 42   LXI H,CHTAB_422B
+        0F87 * 06 73      MVI B,73H
+        L0F89:
+        0F89 * 36 00      MVI M,00H
+        0F8B * 23         INX H
+        0F8C * 05         DCR B
+        0F8D * C2 89 0F   JNZ L0F89
+        0F90 * 3E 01      MVI A,01H
+        0F92 * 32 9D 42   STA LINK_DOWN
+        0F95 * 21 9E 42   LXI H,429EH
+        0F98 * 11 40 18   LXI D,MSG_SITE_NOT_ACTIVE
+        0F9B * 1A         LDAX D
+        0F9C * 47         MOV B,A
+        0F9D * CD 94 16   CALL copy_bytes
+        0FA0 * 21 8B A1   LXI H,CHSTATE_A18B
+        L0FA3:
+        0FA3 * 3E FF      MVI A,FFH
+        0FA5 * CD 22 07   CALL buf_free_prev
+        0FA8 * 35         DCR M
+        0FA9 * 11 0A 00   LXI D,000AH
+        0FAC * 19         DAD D
+        0FAD * 11 AC A2   LXI D,A2ACH
+        0FB0 * 7B         MOV A,E
+        0FB1 * 95         SUB L
+        0FB2 * 7A         MOV A,D
+        0FB3 * 9C         SBB H
+        0FB4 * D2 A3 0F   JNC L0FA3
+        0FB7 * 21 D2 A2   LXI H,POLL_ADDR
+        0FBA * 97         SUB A
+        0FBB * 0E 0F      MVI C,0FH
+        L0FBD:
+        0FBD * 77         MOV M,A
+        0FBE * 23         INX H
+        0FBF * 0D         DCR C
+        0FC0 * F2 BD 0F   JP L0FBD
+        0FC3 * 06 02      MVI B,02H
+        L0FC5:
+        0FC5 * CD 71 06   CALL buf_alloc
+        0FC8 * 36 00      MVI M,00H
+        0FCA * 05         DCR B
+        0FCB * CD 71 06   CALL buf_alloc
+        0FCE * 36 05      MVI M,05H
+        0FD0 * 05         DCR B
+        0FD1 * C2 C5 0F   JNZ L0FC5
+        0FD4 * CD 71 06   CALL buf_alloc
+        0FD7 * 06 00      MVI B,00H
+        0FD9 * 36 05      MVI M,05H
+        0FDB * 0E 0B      MVI C,0BH
+        L0FDD:
+        0FDD * CD B2 06   CALL L06B2
+        0FE0 * 70         MOV M,B
+        0FE1 * 04         INR B
+        0FE2 * CD B2 06   CALL L06B2
+        0FE5 * 36 05      MVI M,05H
+        0FE7 * 23         INX H
+        0FE8 * 5E         MOV E,M
+        0FE9 * 23         INX H
+        0FEA * 56         MOV D,M
+        0FEB * 3E 70      MVI A,70H
+        0FED * 81         ADD C
+        0FEE * 12         STAX D
+        0FEF * 13         INX D
+        0FF0 * 3E 71      MVI A,71H
+        0FF2 * 12         STAX D
+        0FF3 * 05         DCR B
+        0FF4 * 0D         DCR C
+        0FF5 * F2 DD 0F   JP L0FDD
+        0FF8 * 21 00 00   LXI H,0000H
+        0FFB * 22 02 A3   SHLD A302H
+        0FFE * 3E 03      MVI A,03H
+
+        ;============================================================================
+        ; 1000-10D5  PERIPHERAL INITIALISATION AND START-UP
+        ;   Sync 8251 (03 53 98 16 96), 8255 (82H), 12 async 8251s (03 53 FA 25),
+        ;   banner copied to RAM, SYSCTL := 7EH, EI, then idle_loop.
+        ;============================================================================
+
+        ;----------------------------------------------------------------------
+        ; peripheral_init  (1000H)
+        ;   Initialise the sync 8251 (A1h), the 8255 (53h) and the 12 async
+        ;   8251s.
+        ;----------------------------------------------------------------------
+        peripheral_init:
+        1000 * D3 A1      OUT SYNC_CTL
+        1002 * 3E 53      MVI A,53H
+        1004 * D3 A1      OUT SYNC_CTL               ; 8251: RESET (IR=1)
+        1006 * 3E 98      MVI A,98H
+        1008 * D3 A1      OUT SYNC_CTL               ; 8251: mode: SYNC, 7 bits, parity, 1 sync char
+        100A * 3E 16      MVI A,16H
+        100C * D3 A1      OUT SYNC_CTL               ; 8251: sync character SYN
+        100E * 3E 96      MVI A,96H
+        1010 * D3 A1      OUT SYNC_CTL               ; 8251: command: EH ER RxE DTR (hunt)
+        1012 * 3E 82      MVI A,82H
+        1014 * D3 53      OUT PPI_CTL                ; 8255: mode: port A out, port B in
+        1016 * 3E 08      MVI A,08H
+        1018 * D3 53      OUT PPI_CTL                ; 8255: PC4 reset
+        101A * 3E 09      MVI A,09H
+        101C * D3 53      OUT PPI_CTL                ; 8255: PC4 set
+        101E * 3E 0F      MVI A,0FH
+        1020 * D3 53      OUT PPI_CTL                ; 8255: PC7 set (strobe high)
+        1022 * 0E 00      MVI C,00H
+        L1024:
+        1024 * 21 91 0C   LXI H,0C91H
+        1027 * 3E 03      MVI A,03H
+        1029 * CD 45 0D   CALL indexed_call
+        102C * 21 91 0C   LXI H,0C91H
+        102F * 3E 53      MVI A,53H
+        1031 * CD 45 0D   CALL indexed_call
+        1034 * 21 91 0C   LXI H,0C91H
+        1037 * 3E FA      MVI A,FAH
+        1039 * CD 45 0D   CALL indexed_call
+        103C * 21 91 0C   LXI H,0C91H
+        103F * 3E 25      MVI A,25H
+        1041 * CD 45 0D   CALL indexed_call
+        1044 * 21 04 0C   LXI H,0C04H
+        1047 * CD 45 0D   CALL indexed_call
+        104A * 06 01      MVI B,01H
+        104C * CD 21 06   CALL chan_state_ptr
+        104F * 36 06      MVI M,06H
+        1051 * 23         INX H
+        1052 * 5E         MOV E,M
+        1053 * 23         INX H
+        1054 * 56         MOV D,M
+        1055 * 13         INX D
+        1056 * 13         INX D
+        1057 * 13         INX D
+        1058 * 23         INX H
+        1059 * 23         INX H
+        105A * 23         INX H
+        105B * E5         PUSH H
+        105C * 23         INX H
+        105D * 23         INX H
+        105E * 73         MOV M,E
+        105F * 23         INX H
+
+        ;----------------------------------------------------------------------
+        ; banner_init  (1060H)
+        ;   Copy the banner (10D6h, 48 bytes) and the 44-byte control-block
+        ;   image (1106h) into RAM; write 7Eh to SYSCTL; EI; go idle.
+        ;----------------------------------------------------------------------
+        banner_init:
+        1060 * 72         MOV M,D
+        1061 * 21 D6 10   LXI H,BANNER
+        1064 * 06 30      MVI B,30H
+        L1066:
+        1066 * 7E         MOV A,M
+        1067 * 12         STAX D
+        1068 * 13         INX D
+        1069 * 23         INX H
+        106A * 05         DCR B
+        106B * C2 66 10   JNZ L1066
+        106E * E1         POP H
+        106F * 73         MOV M,E
+        1070 * 23         INX H
+        1071 * 72         MOV M,D
+        1072 * 79         MOV A,C
+        1073 * FE 0B      CPI 0BH
+        1075 * CA 7C 10   JZ L107C
+        1078 * 0C         INR C
+        1079 * C3 24 10   JMP L1024
+        L107C:
+        107C * 3E 7E      MVI A,7EH
+        107E * D3 FE      OUT SYSCTL
+        1080 * 21 06 11   LXI H,INIT_IMAGE
+        1083 * 11 F9 41   LXI D,INIT_BLOCK
+        1086 * 06 2C      MVI B,2CH
+        L1088:
+        1088 * 7E         MOV A,M
+        1089 * 12         STAX D
+        108A * 23         INX H
+        108B * 13         INX D
+        108C * 05         DCR B
+        108D * C2 88 10   JNZ L1088
+        1090 * 21 F9 41   LXI H,INIT_BLOCK
+        1093 * 22 02 40   SHLD CUR_TASK
+        1096 * 3E 30      MVI A,30H
+        1098 * 32 01 40   STA 4001H
+        109B * 3E 03      MVI A,03H
+        109D * 32 00 40   STA TIMESLICE
+        10A0 * 3E 00      MVI A,00H
+        10A2 * 32 04 40   STA 4004H
+        10A5 * 3E 02      MVI A,02H
+        10A7 * 32 07 40   STA 4007H
+        10AA * 3E 04      MVI A,04H
+        10AC * 32 F9 A2   STA TX_STATE
+        10AF * 3E FF      MVI A,FFH
+        10B1 * 32 F2 A2   STA RX_STATE
+        10B4 * 21 00 00   LXI H,0000H
+        10B7 * 22 F7 A2   SHLD RX_BUFPTR
+        10BA * 22 FA A2   SHLD TX_BUFPTR
+        10BD * 3E 00      MVI A,00H
+        10BF * 32 FE A2   STA A2FEH
+        10C2 * 32 0B 40   STA 400BH
+        10C5 * 21 09 A3   LXI H,A309H
+        10C8 * 06 0B      MVI B,0BH
+        10CA * 3E 61      MVI A,61H
+        L10CC:
+        10CC * 77         MOV M,A
+        10CD * 23         INX H
+        10CE * 05         DCR B
+        10CF * F2 CC 10   JP L10CC
+        10D2 * FB         EI
+        10D3 * C3 69 08   JMP idle_loop
+
+        ;============================================================================
+        ; 10D6-1105  BANNER TEXT (48 BYTES, COPIED TO RAM AND SENT ON EVERY CHANNEL)
+        ;   ESC A brackets the text (display attribute toggle - inferred).
+        ;============================================================================
+        BANNER:
+        ; 48 bytes: ESC A, text, ESC A
+        10D6            DB   ESC,'A','ID-7000 *READY* (200UT/SIM) VERSION 01.02.83',ESC,'A'
+
+        ;============================================================================
+        ; 1106-1131  CONTROL-BLOCK INITIAL IMAGE (44 BYTES, COPIED TO 41F9H = INIT_BLOCK)
+        ;   Structure not decoded: looks like three 12-byte records followed by 8 bytes.
+        ;============================================================================
+        1106            DB   69H,08H,54H,40H,03H,03H,76H,76H,00H,00H,00H,00H
+        1112            DB   05H,19H,9AH,40H,01H,01H,76H,76H,00H,00H,00H,00H
+        111E            DB   75H,0AH,E0H,40H,01H,03H,76H,76H,00H,00H,00H,00H
+        112A            DB   FFH,FFH,E0H,02H,F8H,41H,01H,1EH
+
+        ;============================================================================
+        ; 1132-125A  CHANNEL / BUFFER DESCRIPTOR TABLE IMAGE
+        ;   1139H-1259H (289 bytes) is copied to RAM at A18AH by boot_init.
+        ;   Mostly 10-byte records: word pairs that look like start/end addresses inside the
+        ;   RAM pool 42D2H-A189H (about 424H bytes apart), then head/tail copies and 0FFFFH.
+        ;   Exact field meaning not decoded.
+        ;============================================================================
+        1132            DB   76H,76H,00H,00H,00H,00H,FFH  ; leading bytes before the first record
+        1139            DW   D2FFH,F542H,D246H,D242H,FF42H
+        1143            DW   F6FFH,1946H,F64BH,F646H,FF46H
+        114D            DW   1AFFH,3D4BH,1A4FH,1A4BH,FF4BH
+        1157            DW   3EFFH,614FH,3E53H,3E4FH,FF4FH
+        1161            DW   62FFH,8553H,6257H,6253H,FF53H
+        116B            DW   86FFH,A957H,865BH,8657H,FF57H
+        1175            DW   AAFFH,CD5BH,AA5FH,AA5BH,FF5BH
+        117F            DW   CEFFH,F15FH,CE63H,CE5FH,FF5FH
+        1189            DW   F2FFH,1563H,F268H,F263H,FF63H
+        1193            DW   16FFH,3968H,166CH,1668H,FF68H
+        119D            DW   3AFFH,5D6CH,3A70H,3A6CH,FF6CH
+        11A7            DW   5EFFH,8170H,5E74H,5E70H,FF70H
+        11B1            DW   82FFH,A574H,8278H,8274H,FF74H
+        11BB            DW   A6FFH,C978H,A67CH,A678H,FF78H
+        11C5            DW   CAFFH,ED7CH,CA80H,CA7CH,FF7CH
+        11CF            DW   EEFFH,1180H,EE85H,EE80H,FF80H
+        11D9            DW   12FFH,3585H,1289H,1285H,FF85H
+        11E3            DW   36FFH,3C89H,368BH,3689H,FF89H
+        11ED            DW   3DFFH,438BH,3D8DH,3D8BH,FF8BH
+        11F7            DW   44FFH,4A8DH,448FH,448DH,FF8DH
+        1201            DW   4BFFH,518FH,4B91H,4B8FH,FF8FH
+        120B            DW   52FFH,5891H,5293H,5291H,FF91H
+        1215            DW   59FFH,5F93H,5995H,5993H,FF93H
+        121F            DW   60FFH,6695H,6097H,6095H,FF95H
+        1229            DW   67FFH,6D97H,6799H,6797H,FF97H
+        1233            DW   6EFFH,7499H,6E9BH,6E99H,FF99H
+        123D            DW   75FFH,7B9BH,759DH,759BH,FF9BH
+        1247            DW   7CFFH,829DH,7C9FH,7C9DH,FF9DH
+        1251            DW   83FFH,899FH,83A1H,839FH ; +odd byte 9FH
+        125A            DB   76H  ; HLT padding before the relocated block
+
+        ;============================================================================
+        ; 125B-14FF  RELOCATED CODE BLOCK (LINKED FOR BASE 7D00H, NEVER REFERENCED OR EXECUTED)
+        ;   Branch targets 8F5BH-91FFH only make sense if this block lives at file offset + 7D00H
+        ;   (all 39 in-block targets land on instruction starts).  It calls 0040H, 005EH, 0091H,
+        ;   00A6H, 00ACH ... which do not match this ROM, and uses RAM at 94xxH/99xxH/A7D6H, so
+        ;   it appears to belong to another program or ROM set.  The last instruction is cut off at
+        ;   14FFH where the native cmd_match routine begins.  Addresses below: file offset (runtime).
+        ;============================================================================
+        125B (8F5B) CD 40 00   CALL 0040H ; external
+        125E (8F5E) 01 70 95   LXI B,9570H
+        1261 (8F61) 11 1D 00   LXI D,001DH
+        1264 (8F64) 2A D6 A7   LHLD A7D6H
+        1267 (8F67) CD C0 6A   CALL 6AC0H ; external
+        126A (8F6A) CD 00 6B   CALL 6B00H ; external
+        126D (8F6D) C9         RET
+        126E (8F6E) 21 8B 95   LXI H,958BH
+        1271 (8F71) CD 40 00   CALL 0040H ; external
+        1274 (8F74) 3E 02      MVI A,02H
+        1276 (8F76) 01 70 95   LXI B,9570H
+        1279 (8F79) 11 1D 00   LXI D,001DH
+        127C (8F7C) 2A D6 A7   LHLD A7D6H
+        127F (8F7F) CD 91 00   CALL 0091H ; external
+        1282 (8F82) C9         RET
+        R8F83:
+        1283 (8F83) D1         POP D
+        1284 (8F84) 21 A5 95   LXI H,95A5H
+        1287 (8F87) CD 35 A8   CALL A835H ; external
+        128A (8F8A) 3E 02      MVI A,02H
+        128C (8F8C) 01 8D 95   LXI B,958DH
+        128F (8F8F) 11 1C 00   LXI D,001CH
+        1292 (8F92) 2A D6 A7   LHLD A7D6H
+        1295 (8F95) CD 91 00   CALL 0091H ; external
+        1298 (8F98) C3 9B 8F   JMP R8F9B
+        R8F9B:
+        129B (8F9B) CD A6 00   CALL 00A6H ; external
+        129E (8F9E) E5         PUSH H
+        129F (8F9F) 22 28 99   SHLD 9928H
+        12A2 (8FA2) 44         MOV B,H
+        12A3 (8FA3) 4D         MOV C,L
+        12A4 (8FA4) 1B         DCX D
+        12A5 (8FA5) 1B         DCX D
+        12A6 (8FA6) 1B         DCX D
+        R8FA7:
+        12A7 (8FA7) 36 00      MVI M,00H
+        12A9 (8FA9) 23         INX H
+        12AA (8FAA) 1B         DCX D
+        12AB (8FAB) 7A         MOV A,D
+        12AC (8FAC) B3         ORA E
+        12AD (8FAD) C2 A7 8F   JNZ R8FA7
+        12B0 (8FB0) 36 FF      MVI M,FFH
+        12B2 (8FB2) 23         INX H
+        12B3 (8FB3) 71         MOV M,C
+        12B4 (8FB4) 23         INX H
+        12B5 (8FB5) 70         MOV M,B
+        12B6 (8FB6) E1         POP H
+        12B7 (8FB7) CD BA 60   CALL 60BAH ; external
+        12BA (8FBA) C9         RET
+        12BB (8FBB) 21 06 00   LXI H,0006H
+        12BE (8FBE) CD 9A 00   CALL 009AH ; external
+        12C1 (8FC1) 7A         MOV A,D
+        12C2 (8FC2) B3         ORA E
+        12C3 (8FC3) CC 83 8F   CZ R8F83
+        12C6 (8FC6) 22 98 94   SHLD 9498H
+        12C9 (8FC9) EB         XCHG
+        12CA (8FCA) 22 96 94   SHLD 9496H
+        12CD (8FCD) 1E 06      MVI E,06H
+        R8FCF:
+        12CF (8FCF) 36 00      MVI M,00H
+        12D1 (8FD1) 23         INX H
+        12D2 (8FD2) 1D         DCR E
+        12D3 (8FD3) C2 CF 8F   JNZ R8FCF
+        12D6 (8FD6) C9         RET
+        12D7 (8FD7) 2A 96 94   LHLD 9496H
+        12DA (8FDA) EB         XCHG
+        12DB (8FDB) 2A 98 94   LHLD 9498H
+        12DE (8FDE) CD 9D 00   CALL 009DH ; external
+        12E1 (8FE1) C9         RET
+        12E2 (8FE2) 2A 96 94   LHLD 9496H
+        12E5 (8FE5) 7E         MOV A,M
+        12E6 (8FE6) 0E 00      MVI C,00H
+        12E8 (8FE8) A7         ANA A
+        12E9 (8FE9) C9         RET
+        R8FEA:
+        12EA (8FEA) 2A 96 94   LHLD 9496H
+        12ED (8FED) 44         MOV B,H
+        12EE (8FEE) 4D         MOV C,L
+        12EF (8FEF) CD B2 00   CALL 00B2H ; external
+        12F2 (8FF2) 2A 94 94   LHLD 9494H
+        12F5 (8FF5) 4E         MOV C,M
+        12F6 (8FF6) 23         INX H
+        12F7 (8FF7) 7E         MOV A,M
+        12F8 (8FF8) 3C         INR A
+        12F9 (8FF9) C2 01 90   JNZ R9001
+        12FC (8FFC) 23         INX H
+        12FD (8FFD) 7E         MOV A,M
+        12FE (8FFE) 23         INX H
+        12FF (8FFF) 66         MOV H,M
+        1300 (9000) 6F         MOV L,A
+        R9001:
+        1301 (9001) 22 94 94   SHLD 9494H
+        1304 (9004) C9         RET
+        1305 (9005) 21 15 4F   LXI H,4F15H
+        1308 (9008) 11 50 00   LXI D,0050H
+        130B (900B) E5         PUSH H
+        130C (900C) 22 94 94   SHLD 9494H
+        130F (900F) 44         MOV B,H
+        1310 (9010) 4D         MOV C,L
+        1311 (9011) 1D         DCR E
+        1312 (9012) 1D         DCR E
+        1313 (9013) 1D         DCR E
+        R9014:
+        1314 (9014) 36 00      MVI M,00H
+        1316 (9016) 23         INX H
+        1317 (9017) 1D         DCR E
+        1318 (9018) C2 14 90   JNZ R9014
+        131B (901B) 36 FF      MVI M,FFH
+        131D (901D) 23         INX H
+        131E (901E) 71         MOV M,C
+        131F (901F) 23         INX H
+        1320 (9020) 70         MOV M,B
+        1321 (9021) 2A 96 94   LHLD 9496H
+        1324 (9024) E5         PUSH H
+        1325 (9025) 97         SUB A
+        1326 (9026) 32 2A 99   STA 992AH
+        1329 (9029) CD 5E 00   CALL 005EH ; external
+        132C (902C) 36 09      MVI M,09H
+        132E (902E) 23         INX H
+        132F (902F) 23         INX H
+        1330 (9030) C1         POP B
+        1331 (9031) 71         MOV M,C
+        1332 (9032) 23         INX H
+        1333 (9033) 70         MOV M,B
+        1334 (9034) 01 04 00   LXI B,0004H
+        1337 (9037) 09         DAD B
+        1338 (9038) C1         POP B
+        1339 (9039) 71         MOV M,C
+        133A (903A) 23         INX H
+        133B (903B) 70         MOV M,B
+        133C (903C) 2A D6 A7   LHLD A7D6H
+        133F (903F) 44         MOV B,H
+        1340 (9040) 4D         MOV C,L
+        1341 (9041) EB         XCHG
+        1342 (9042) CD AC 00   CALL 00ACH ; external
+        1345 (9045) C9         RET
+        1346 (9046) CD 5E 00   CALL 005EH ; external
+        1349 (9049) D5         PUSH D
+        134A (904A) 36 07      MVI M,07H
+        134C (904C) 23         INX H
+        134D (904D) 23         INX H
+        134E (904E) 01 1F 04   LXI B,041FH
+        1351 (9051) 71         MOV M,C
+        1352 (9052) 23         INX H
+        1353 (9053) 70         MOV M,B
+        1354 (9054) 01 04 00   LXI B,0004H
+        1357 (9057) 09         DAD B
+        1358 (9058) 11 D0 A7   LXI D,A7D0H
+        135B (905B) 06 02      MVI B,02H
+        135D (905D) CD 73 00   CALL 0073H ; external
+        1360 (9060) 2A D6 A7   LHLD A7D6H
+        1363 (9063) 44         MOV B,H
+        1364 (9064) 4D         MOV C,L
+        1365 (9065) E1         POP H
+        1366 (9066) CD AC 00   CALL 00ACH ; external
+        1369 (9069) C9         RET
+        R906A:
+        136A (906A) E5         PUSH H
+        136B (906B) D5         PUSH D
+        136C (906C) C5         PUSH B
+        136D (906D) F5         PUSH PSW
+        136E (906E) 32 9D 94   STA 949DH
+        1371 (9071) 3E 02      MVI A,02H
+        1373 (9073) 01 9A 94   LXI B,949AH
+        1376 (9076) 11 04 00   LXI D,0004H
+        1379 (9079) 2A D6 A7   LHLD A7D6H
+        137C (907C) CD 91 00   CALL 0091H ; external
+        137F (907F) F1         POP PSW
+        1380 (9080) C1         POP B
+        1381 (9081) D1         POP D
+        1382 (9082) E1         POP H
+        1383 (9083) C9         RET
+        1384 (9084) E5         PUSH H
+        1385 (9085) D5         PUSH D
+        1386 (9086) C5         PUSH B
+        1387 (9087) 3E 20      MVI A,20H
+        1389 (9089) 32 9D 94   STA 949DH
+        138C (908C) 3E 02      MVI A,02H
+        138E (908E) 01 9D 94   LXI B,949DH
+        1391 (9091) 11 01 00   LXI D,0001H
+        1394 (9094) 2A D6 A7   LHLD A7D6H
+        1397 (9097) CD 91 00   CALL 0091H ; external
+        139A (909A) C1         POP B
+        139B (909B) D1         POP D
+        139C (909C) E1         POP H
+        139D (909D) C9         RET
+        139E (909E) 3A 2A 99   LDA 992AH
+        13A1 (90A1) A7         ANA A
+        13A2 (90A2) CA D8 90   JZ R90D8
+        13A5 (90A5) FE 02      CPI 02H
+        13A7 (90A7) CA EC 90   JZ R90EC
+        13AA (90AA) C5         PUSH B
+        13AB (90AB) CD EA 8F   CALL R8FEA
+        13AE (90AE) C1         POP B
+        13AF (90AF) 97         SUB A
+        13B0 (90B0) 32 2A 99   STA 992AH
+        13B3 (90B3) 79         MOV A,C
+        13B4 (90B4) F5         PUSH PSW
+        13B5 (90B5) CD 41 99   CALL 9941H ; external
+        13B8 (90B8) 47         MOV B,A
+        13B9 (90B9) F1         POP PSW
+        13BA (90BA) FE 43      CPI 43H
+        13BC (90BC) CA C6 90   JZ R90C6
+        13BF (90BF) FE 44      CPI 44H
+        13C1 (90C1) CA C6 90   JZ R90C6
+        13C4 (90C4) 78         MOV A,B
+        13C5 (90C5) C9         RET
+        R90C6:
+        13C6 (90C6) 2A 2F 99   LHLD 992FH
+        13C9 (90C9) 11 74 98   LXI D,9874H
+        13CC (90CC) 7C         MOV A,H
+        13CD (90CD) BA         CMP D
+        13CE (90CE) C2 6C 91   JNZ R916C
+        13D1 (90D1) 7D         MOV A,L
+        13D2 (90D2) BB         CMP E
+        13D3 (90D3) C2 6C 91   JNZ R916C
+        13D6 (90D6) 78         MOV A,B
+        13D7 (90D7) C9         RET
+        R90D8:
+        13D8 (90D8) 79         MOV A,C
+        13D9 (90D9) FE 01      CPI 01H
+        13DB (90DB) C2 E5 90   JNZ R90E5
+        13DE (90DE) 3E 01      MVI A,01H
+        13E0 (90E0) 32 2A 99   STA 992AH
+        13E3 (90E3) 97         SUB A
+        13E4 (90E4) C9         RET
+        R90E5:
+        13E5 (90E5) 3A 63 A3   LDA A363H
+        13E8 (90E8) A7         ANA A
+        13E9 (90E9) CA 0A 91   JZ R910A
+        R90EC:
+        13EC (90EC) 21 31 99   LXI H,9931H
+        13EF (90EF) 71         MOV M,C
+        13F0 (90F0) C5         PUSH B
+        13F1 (90F1) 01 01 00   LXI B,0001H
+        13F4 (90F4) CD 3B 60   CALL 603BH ; external
+        13F7 (90F7) C1         POP B
+        13F8 (90F8) CD BB 91   CALL R91BB
+        13FB (90FB) 97         SUB A
+        13FC (90FC) 32 2A 99   STA 992AH
+        13FF (90FF) 3A 64 A3   LDA A364H
+        1402 (9102) A7         ANA A
+        1403 (9103) C8         RZ
+        1404 (9104) 79         MOV A,C
+        1405 (9105) CD 6A 90   CALL R906A
+        1408 (9108) 97         SUB A
+        1409 (9109) C9         RET
+        R910A:
+        140A (910A) 79         MOV A,C
+        140B (910B) FE 20      CPI 20H
+        140D (910D) FA 47 91   JM R9147
+        1410 (9110) FE 7F      CPI 7FH
+        1412 (9112) CA AC 92   JZ 92ACH ; external
+        1415 (9115) 2A 2D 99   LHLD 992DH
+        1418 (9118) EB         XCHG
+        1419 (9119) 2A 2B 99   LHLD 992BH
+        141C (911C) 7D         MOV A,L
+        141D (911D) BB         CMP E
+        141E (911E) C2 2D 91   JNZ R912D
+        1421 (9121) 7C         MOV A,H
+        1422 (9122) BA         CMP D
+        1423 (9123) C2 2D 91   JNZ R912D
+        1426 (9126) 3E 07      MVI A,07H
+        1428 (9128) CD 6A 90   CALL R906A
+        142B (912B) 97         SUB A
+        142C (912C) C9         RET
+        R912D:
+        142D (912D) 71         MOV M,C
+        142E (912E) 23         INX H
+        142F (912F) EB         XCHG
+        1430 (9130) 2A 2F 99   LHLD 992FH
+        1433 (9133) CD 6D 00   CALL 006DH ; external
+        1436 (9136) 19         DAD D
+        1437 (9137) EB         XCHG
+        1438 (9138) D2 3E 91   JNC R913E
+        143B (913B) 22 2F 99   SHLD 992FH
+        R913E:
+        143E (913E) 22 2B 99   SHLD 992BH
+        1441 (9141) 79         MOV A,C
+        1442 (9142) CD 6A 90   CALL R906A
+        1445 (9145) 97         SUB A
+        1446 (9146) C9         RET
+        R9147:
+        1447 (9147) FE 0D      CPI 0DH
+        1449 (9149) CA 6C 91   JZ R916C
+        144C (914C) FE 08      CPI 08H
+        144E (914E) CA CC 91   JZ R91CC
+        1451 (9151) FE 0C      CPI 0CH
+        1453 (9153) CA EE 91   JZ R91EE
+        1456 (9156) FE 0B      CPI 0BH
+        1458 (9158) CA 1C 92   JZ 921CH ; external
+        145B (915B) FE 0A      CPI 0AH
+        145D (915D) CA 1C 92   JZ 921CH ; external
+        1460 (9160) FE 0E      CPI 0EH
+        1462 (9162) CA 1C 92   JZ 921CH ; external
+        1465 (9165) 3E 07      MVI A,07H
+        1467 (9167) CD 6A 90   CALL R906A
+        146A (916A) 97         SUB A
+        146B (916B) C9         RET
+        R916C:
+        146C (916C) 2A 2F 99   LHLD 992FH
+        146F (916F) 36 0D      MVI M,0DH
+        1471 (9171) 3A 66 A3   LDA A366H
+        1474 (9174) A7         ANA A
+        1475 (9175) C2 7B 91   JNZ R917B
+        1478 (9178) 23         INX H
+        1479 (9179) 36 0A      MVI M,0AH
+        R917B:
+        147B (917B) EB         XCHG
+        147C (917C) 21 74 98   LXI H,9874H
+        147F (917F) CD 6D 00   CALL 006DH ; external
+        1482 (9182) 19         DAD D
+        1483 (9183) 23         INX H
+        1484 (9184) E5         PUSH H
+        1485 (9185) 3A 66 A3   LDA A366H
+        1488 (9188) A7         ANA A
+        1489 (9189) C2 91 91   JNZ R9191
+        148C (918C) 3E 0A      MVI A,0AH
+        148E (918E) CD 6A 90   CALL R906A
+        R9191:
+        1491 (9191) 3E 0D      MVI A,0DH
+        1493 (9193) CD 6A 90   CALL R906A
+        1496 (9196) 3A 41 45   LDA 4541H
+        1499 (9199) 21 43 45   LXI H,4543H
+        149C (919C) B6         ORA M
+        149D (919D) CA B4 91   JZ R91B4
+        14A0 (91A0) C1         POP B
+        14A1 (91A1) C5         PUSH B
+        14A2 (91A2) 21 74 98   LXI H,9874H
+        R91A5:
+        14A5 (91A5) C5         PUSH B
+        14A6 (91A6) 4E         MOV C,M
+        14A7 (91A7) E5         PUSH H
+        14A8 (91A8) CD 1F 93   CALL 931FH ; external
+        14AB (91AB) E1         POP H
+        14AC (91AC) C1         POP B
+        14AD (91AD) 23         INX H
+        14AE (91AE) 0B         DCX B
+        14AF (91AF) 78         MOV A,B
+        14B0 (91B0) B1         ORA C
+        14B1 (91B1) C2 A5 91   JNZ R91A5
+        R91B4:
+        14B4 (91B4) C1         POP B
+        14B5 (91B5) 21 74 98   LXI H,9874H
+        14B8 (91B8) CD 3B 60   CALL 603BH ; external
+        R91BB:
+        14BB (91BB) 21 74 98   LXI H,9874H
+        14BE (91BE) 22 2B 99   SHLD 992BH
+        14C1 (91C1) 22 2F 99   SHLD 992FH
+        14C4 (91C4) 21 28 99   LXI H,9928H
+        14C7 (91C7) 22 2D 99   SHLD 992DH
+        14CA (91CA) 97         SUB A
+        14CB (91CB) C9         RET
+        R91CC:
+        14CC (91CC) 2A 2B 99   LHLD 992BH
+        14CF (91CF) 11 74 98   LXI D,9874H
+        14D2 (91D2) 7B         MOV A,E
+        14D3 (91D3) BD         CMP L
+        14D4 (91D4) C2 E3 91   JNZ R91E3
+        14D7 (91D7) 7A         MOV A,D
+        14D8 (91D8) BC         CMP H
+        14D9 (91D9) C2 E3 91   JNZ R91E3
+        R91DC:
+        14DC (91DC) 3E 07      MVI A,07H
+        14DE (91DE) CD 6A 90   CALL R906A
+        14E1 (91E1) 97         SUB A
+        14E2 (91E2) C9         RET
+        R91E3:
+        14E3 (91E3) 2B         DCX H
+        14E4 (91E4) 22 2B 99   SHLD 992BH
+        14E7 (91E7) 3E 08      MVI A,08H
+        14E9 (91E9) CD 6A 90   CALL R906A
+        14EC (91EC) 97         SUB A
+        14ED (91ED) C9         RET
+        R91EE:
+        14EE (91EE) 2A 2D 99   LHLD 992DH
+        14F1 (91F1) EB         XCHG
+        14F2 (91F2) 2A 2B 99   LHLD 992BH
+        14F5 (91F5) 7D         MOV A,L
+        14F6 (91F6) BB         CMP E
+        14F7 (91F7) C2 FF 91   JNZ 91FFH ; external
+        14FA (91FA) 7C         MOV A,H
+        14FB (91FB) BA         CMP D
+        14FC (91FC) CA DC 91   JZ R91DC
+
+        ;============================================================================
+        ; 14FF-1693  COMMAND MATCHING, DISPATCH AND REPLY BUILDING
+        ;============================================================================
+        14FF            DB   2AH  ; last (cut-off) byte of the relocated block
+
+        ;----------------------------------------------------------------------
+        ; cmd_match  (1500H)
+        ;   Compare the typed command with the length-prefixed table at 169Eh;
+        ;   returns index.
+        ;----------------------------------------------------------------------
+        cmd_match:
+        1500   C5         PUSH B
+        1501   11 9E 16   LXI D,CMD_TABLE
+        1504   06 00      MVI B,00H
+        L1506:
+        1506   E5         PUSH H
+        1507   1A         LDAX D
+        1508   A7         ANA A
+        1509   CA 19 15   JZ L1519
+        150C   4F         MOV C,A
+        150D   13         INX D
+        L150E:
+        150E   1A         LDAX D
+        150F   BE         CMP M
+        1510   C2 1D 15   JNZ L151D
+        1513   13         INX D
+        1514   23         INX H
+        1515   0D         DCR C
+        1516   C2 0E 15   JNZ L150E
+        L1519:
+        1519   78         MOV A,B
+        151A   E1         POP H
+        151B   C1         POP B
+        151C   C9         RET
+        L151D:
+        151D   78         MOV A,B
+        151E   06 00      MVI B,00H
+        1520   EB         XCHG
+        1521   09         DAD B
+        1522   EB         XCHG
+        1523   E1         POP H
+        1524   47         MOV B,A
+        1525   04         INR B
+        1526   C3 06 15   JMP L1506
+
+        ;----------------------------------------------------------------------
+        ; tbl_get  (1529H)
+        ;   Get byte [HL+A].
+        ;----------------------------------------------------------------------
+        tbl_get:
+        1529 * C5         PUSH B
+        152A * 06 00      MVI B,00H
+        152C * 09         DAD B
+        152D * 7E         MOV A,M
+        152E * C1         POP B
+        152F * C9         RET
+
+        ;----------------------------------------------------------------------
+        ; tbl_set  (1530H)
+        ;   Store byte at [HL+A].
+        ;----------------------------------------------------------------------
+        tbl_set:
+        1530 * C5         PUSH B
+        1531 * 06 00      MVI B,00H
+        1533 * 09         DAD B
+        1534 * 77         MOV M,A
+        1535 * C1         POP B
+        1536 * C9         RET
+
+        ;----------------------------------------------------------------------
+        ; cmd_dispatch  (1537H)
+        ;   Jump on command index (ASC128/AUTO80/HP/PTAPE ON/OFF, STATUS,
+        ;   RESET).
+        ;----------------------------------------------------------------------
+        cmd_dispatch:
+        1537   F5         PUSH PSW
+        1538   A7         ANA A
+        1539   CA 63 15   JZ L1563
+        153C   3D         DCR A
+        153D   CA 70 15   JZ L1570
+        1540   3D         DCR A
+        1541   CA 7C 15   JZ L157C
+        1544   3D         DCR A
+        1545   CA 89 15   JZ L1589
+        1548   3D         DCR A
+        1549   CA 95 15   JZ L1595
+        154C   3D         DCR A
+        154D   CA A2 15   JZ L15A2
+        1550   3D         DCR A
+        1551   CA AE 15   JZ L15AE
+        1554   3D         DCR A
+        1555   CA BB 15   JZ L15BB
+        1558   3D         DCR A
+        1559   CA C7 15   JZ L15C7
+        155C   3D         DCR A
+        155D   CA C9 15   JZ L15C9
+        1560   C3 E7 15   JMP L15E7
+        L1563:
+        1563   3E 01      MVI A,01H
+        1565   21 3B 42   LXI H,CHTAB_423B
+        1568   CD 30 15   CALL tbl_set
+        156B   F1         POP PSW
+        156C   21 F6 16   LXI H,MSG_ASC128_ON
+        156F   C9         RET
+        L1570:
+        1570   97         SUB A
+        1571   21 3B 42   LXI H,CHTAB_423B
+        1574   CD 30 15   CALL tbl_set
+        1577   F1         POP PSW
+        1578   21 1D 17   LXI H,MSG_ASC128_OFF
+        157B   C9         RET
+        L157C:
+        157C   3E 01      MVI A,01H
+        157E   21 5B 42   LXI H,CHTAB_425B
+        1581   CD 30 15   CALL tbl_set
+        1584   F1         POP PSW
+        1585   21 41 17   LXI H,MSG_AUTO80_ON
+        1588   C9         RET
+        L1589:
+        1589   97         SUB A
+        158A   21 5B 42   LXI H,CHTAB_425B
+        158D   CD 30 15   CALL tbl_set
+        1590   F1         POP PSW
+        1591   21 69 17   LXI H,MSG_AUTO80_OFF
+        1594   C9         RET
+        L1595:
+        1595   3E 01      MVI A,01H
+        1597   21 6B 42   LXI H,CHTAB_426B
+        159A   CD 30 15   CALL tbl_set
+        159D   F1         POP PSW
+        159E   21 8F 17   LXI H,MSG_HP_ON
+        15A1   C9         RET
+        L15A2:
+        15A2   97         SUB A
+        15A3   21 6B 42   LXI H,CHTAB_426B
+        15A6   CD 30 15   CALL tbl_set
+        15A9   F1         POP PSW
+        15AA   21 A9 17   LXI H,MSG_HP_OFF
+        15AD   C9         RET
+        L15AE:
+        15AE   3E 01      MVI A,01H
+        15B0   21 7B 42   LXI H,CHTAB_427B
+        15B3   CD 30 15   CALL tbl_set
+        15B6   F1         POP PSW
+        15B7   21 C4 17   LXI H,MSG_PTAPE_ON
+        15BA   C9         RET
+        L15BB:
+        15BB   97         SUB A
+        15BC   21 7B 42   LXI H,CHTAB_427B
+        15BF   CD 30 15   CALL tbl_set
+        15C2   F1         POP PSW
+        15C3   21 DD 17   LXI H,MSG_PTAPE_OFF
+        15C6   C9         RET
+        L15C7:
+        15C7   F1         POP PSW
+        15C8   C9         RET
+        L15C9:
+        15C9   97         SUB A
+        15CA   21 3B 42   LXI H,CHTAB_423B
+        15CD   CD 30 15   CALL tbl_set
+        15D0   21 5B 42   LXI H,CHTAB_425B
+        15D3   CD 30 15   CALL tbl_set
+        15D6   21 6B 42   LXI H,CHTAB_426B
+        15D9   CD 30 15   CALL tbl_set
+        15DC   21 7B 42   LXI H,CHTAB_427B
+        15DF   CD 30 15   CALL tbl_set
+        15E2   F1         POP PSW
+        15E3   21 6E 18   LXI H,MSG_USER_PORT_NORMAL
+        15E6   C9         RET
+        L15E7:
+        15E7   F1         POP PSW
+        15E8   21 8A 18   LXI H,MSG_ILLEGAL_COMMAND
+        15EB   C9         RET
+
+        ;----------------------------------------------------------------------
+        ; build_reply  (15ECH)
+        ;   Send a message (HL) to channel C through the transmit stubs; used
+        ;   for command replies and link broadcasts.
+        ;----------------------------------------------------------------------
+        build_reply:
+        15EC * C5         PUSH B
+        15ED * F5         PUSH PSW
+        15EE * E5         PUSH H
+        15EF * 06 01      MVI B,01H
+        15F1 * CD 21 06   CALL chan_state_ptr
+        15F4 * 36 06      MVI M,06H
+        15F6 * 23         INX H
+        15F7 * 5E         MOV E,M
+        15F8 * 23         INX H
+        15F9 * 56         MOV D,M
+        15FA * 13         INX D
+        15FB * 13         INX D
+        15FC * 13         INX D
+        15FD * 23         INX H
+        15FE * 23         INX H
+        15FF * 23         INX H
+        1600 * C1         POP B
+        1601 * F1         POP PSW
+        1602 * F5         PUSH PSW
+        1603 * E5         PUSH H
+        1604 * 23         INX H
+        1605 * 23         INX H
+        1606 * 73         MOV M,E
+        1607 * 23         INX H
+        1608 * 72         MOV M,D
+        1609 * FE 08      CPI 08H
+        160B * CA 1F 16   JZ L161F
+        160E * 60         MOV H,B
+        160F * 69         MOV L,C
+        1610 * 46         MOV B,M
+        1611 * 05         DCR B
+        1612 * 23         INX H
+        1613 * EB         XCHG
+        1614 * CD 94 16   CALL copy_bytes
+        1617 * EB         XCHG
+        1618 * E1         POP H
+        1619 * 73         MOV M,E
+        161A * 23         INX H
+        161B * 72         MOV M,D
+        161C * F1         POP PSW
+        161D * C1         POP B
+        161E * C9         RET
+        L161F:
+        161F   E1         POP H
+        1620   F1         POP PSW
+        1621   C1         POP B
+        1622   E5         PUSH H
+        1623   21 3B 42   LXI H,CHTAB_423B
+        1626   CD 29 15   CALL tbl_get
+        1629   A7         ANA A
+        162A   C2 33 16   JNZ L1633
+        162D   21 1D 17   LXI H,MSG_ASC128_OFF
+        1630   C3 36 16   JMP L1636
+        L1633:
+        1633   21 F6 16   LXI H,MSG_ASC128_ON
+        L1636:
+        1636   46         MOV B,M
+        1637   05         DCR B
+        1638   23         INX H
+        1639   EB         XCHG
+        163A   CD 94 16   CALL copy_bytes
+        163D   EB         XCHG
+        163E   21 5B 42   LXI H,CHTAB_425B
+        1641   CD 29 15   CALL tbl_get
+        1644   A7         ANA A
+        1645   C2 4E 16   JNZ L164E
+        1648   21 69 17   LXI H,MSG_AUTO80_OFF
+        164B   C3 51 16   JMP L1651
+        L164E:
+        164E   21 41 17   LXI H,MSG_AUTO80_ON
+        L1651:
+        1651   46         MOV B,M
+        1652   05         DCR B
+        1653   23         INX H
+        1654   EB         XCHG
+        1655   CD 94 16   CALL copy_bytes
+        1658   EB         XCHG
+        1659   21 6B 42   LXI H,CHTAB_426B
+        165C   CD 29 15   CALL tbl_get
+        165F   A7         ANA A
+        1660   C2 69 16   JNZ L1669
+        1663   21 A9 17   LXI H,MSG_HP_OFF
+        1666   C3 6C 16   JMP L166C
+        L1669:
+        1669   21 8F 17   LXI H,MSG_HP_ON
+        L166C:
+        166C   46         MOV B,M
+        166D   05         DCR B
+        166E   23         INX H
+        166F   EB         XCHG
+        1670   CD 94 16   CALL copy_bytes
+        1673   EB         XCHG
+        1674   21 7B 42   LXI H,CHTAB_427B
+        1677   CD 29 15   CALL tbl_get
+        167A   A7         ANA A
+        167B   C2 84 16   JNZ L1684
+        167E   21 DD 17   LXI H,MSG_PTAPE_OFF
+        1681   C3 87 16   JMP L1687
+        L1684:
+        1684   21 C4 17   LXI H,MSG_PTAPE_ON
+        L1687:
+        1687   46         MOV B,M
+        1688   05         DCR B
+        1689   23         INX H
+        168A   EB         XCHG
+        168B   CD 94 16   CALL copy_bytes
+        168E   EB         XCHG
+        168F   E1         POP H
+        1690   73         MOV M,E
+        1691   23         INX H
+        1692   72         MOV M,D
+        1693   C9         RET
+
+        ;============================================================================
+        ; 1694-169D  copy_bytes
+        ;============================================================================
+
+        ;----------------------------------------------------------------------
+        ; copy_bytes  (1694H)
+        ;   Copy B bytes from (DE) to (HL).
+        ;----------------------------------------------------------------------
+        copy_bytes:
+        1694 * 04         INR B
+        L1695:
+        1695 * 05         DCR B
+        1696 * C8         RZ
+        1697 * 1A         LDAX D
+        1698 * 77         MOV M,A
+        1699 * 23         INX H
+        169A * 13         INX D
+        169B * C3 95 16   JMP L1695
+
+        ;============================================================================
+        ; 169E-16F5  LOCAL COMMAND NAME TABLE
+        ;   Each entry: length byte, then the name; table ends with 00H.  Typed as ":NAME".
+        ;============================================================================
+        CMD_TABLE:
+        169E            DB   09H,'ASC128,ON'  ; cmd 0
+        16A8            DB   0AH,'ASC128,OFF'  ; cmd 1
+        16B3            DB   09H,'AUTO80,ON'  ; cmd 2
+        16BD            DB   0AH,'AUTO80,OFF'  ; cmd 3
+        16C8            DB   05H,'HP,ON'  ; cmd 4
+        16CE            DB   06H,'HP,OFF'  ; cmd 5
+        16D5            DB   08H,'PTAPE,ON'  ; cmd 6
+        16DE            DB   09H,'PTAPE,OFF'  ; cmd 7
+        16E8            DB   06H,'STATUS'  ; cmd 8
+        16EF            DB   05H,'RESET'  ; cmd 9
+        16F5            DB   00H            ; end of table
+
+        ;============================================================================
+        ; 16F6-18A1  STATUS / REPLY MESSAGES
+        ;   Each message: length byte (counts itself), ESC A, "[text]", ESC A.
+        ;   Sent to a channel by build_reply (15ECH).
+        ;============================================================================
+        MSG_TABLE:
+        MSG_ASC128_ON:
+        16F6            DB   27H,ESC,'A','[ASCII EXTENDED MODE (128 CH-SET)]',ESC,'A'  ; 39 bytes
+        MSG_ASC128_OFF:
+        171D            DB   24H,ESC,'A','[ASCII NORMAL MODE (95 CH-SET)]',ESC,'A'  ; 36 bytes
+        MSG_AUTO80_ON:
+        1741            DB   28H,ESC,'A','[AUTO CR/LF AT LINES WITH 80 CHARS]',ESC,'A'  ; 40 bytes
+        MSG_AUTO80_OFF:
+        1769            DB   26H,ESC,'A','[NO CR/LF AT LINES WITH 80 CHARS]',ESC,'A'  ; 38 bytes
+        MSG_HP_ON:
+        178F            DB   1AH,ESC,'A','[HP-CASSETTE MODE ON]',ESC,'A'  ; 26 bytes
+        MSG_HP_OFF:
+        17A9            DB   1BH,ESC,'A','[HP-CASSETTE MODE OFF]',ESC,'A'  ; 27 bytes
+        MSG_PTAPE_ON:
+        17C4            DB   19H,ESC,'A','[PAPER TAPE MODE ON]',ESC,'A'  ; 25 bytes
+        MSG_PTAPE_OFF:
+        17DD            DB   1AH,ESC,'A','[PAPER TAPE MODE OFF]',ESC,'A'  ; 26 bytes
+        MSG_LINK_LOST:
+        17F7            DB   16H,ESC,'A','[CYBER LINK LOST]',ESC,'A'  ; 22 bytes
+        MSG_LINK_ESTABLISHED:
+        180D            DB   1DH,ESC,'A','[CYBER LINK ESTABLISHED]',ESC,'A'  ; 29 bytes
+        MSG_LINK_DOWN:
+        182A            DB   16H,ESC,'A','[CYBER LINK DOWN]',ESC,'A'  ; 22 bytes
+        MSG_SITE_NOT_ACTIVE:
+        1840            DB   2EH,ESC,'A','[CYBER LINK: SITE ADDRESS 1   NOT ACTIVE]',ESC,'A'  ; 46 bytes
+        MSG_USER_PORT_NORMAL:
+        186E            DB   1CH,ESC,'A','[USER PORT NORMAL MODE]',ESC,'A'  ; 28 bytes
+        MSG_ILLEGAL_COMMAND:
+        188A            DB   16H,ESC,'A','[ILLEGAL COMMAND]',ESC,'A'  ; 22 bytes
+
+        ;============================================================================
+        ; 18A0-18FF  TEXT RESIDUE AND PADDING (NEVER REFERENCED)
+        ;   Fragments from an earlier firmware revision: "ress", "new", "not restricted", "<S>".
+        ;============================================================================
+        18A0            DB   'ress '
+        18A5            DB   76H x 4  ; padding (HLT)
+        18A9            DB   'newnot restricted<S>'
+        18BD            DB   76H x 67  ; padding (HLT)
+
+        ;============================================================================
+        ; 1900-1A2F  PRINTER OUTPUT TASK (8255 PARALLEL PORT) AND BUFFER TRIM
+        ;   Waits for queued text, then writes each byte to PPI_A and pulses PC7 (strobe) once
+        ;   PPI_B bit 5 (busy) is clear.
+        ;============================================================================
+
+        ;----------------------------------------------------------------------
+        ; printer_task  (1900H)
+        ;   Output task for host data addressed to the printer (ESC space / ESC
+        ;   ! trailer): waits for a buffer, then feeds bytes to the 8255 port.
+        ;----------------------------------------------------------------------
+        printer_task:
+        1900 * 3E 02      MVI A,02H
+        1902 * CD C8 07   CALL task_switch
+        1905 * 06 01      MVI B,01H
+        1907 * CD 4B 06   CALL chan_state_get
+        190A * FE 06      CPI 06H
+        190C * C2 00 19   JNZ printer_task
+        190F * F3         DI
+        1910 * 21 CD A2   LXI H,A2CDH
+        1913 * 46         MOV B,M
+        1914 * 23         INX H
+        1915 * 7E         MOV A,M
+        1916 * 70         MOV M,B
+        1917 * 2B         DCX H
+        1918 * 77         MOV M,A
+        1919 * FB         EI
+        191A * 06 00      MVI B,00H
+        191C * CD 4B 06   CALL chan_state_get
+        191F * 36 01      MVI M,01H
+        1921 * 23         INX H
+        1922 * 23         INX H
+        1923 * 23         INX H
+        1924 * 23         INX H
+        1925 * 23         INX H
+        1926 * 4E         MOV C,M
+        1927 * 23         INX H
+        1928 * 46         MOV B,M
+        1929 * 0B         DCX B
+        192A * 23         INX H
+        192B * 5E         MOV E,M
+        192C * 23         INX H
+        192D * 56         MOV D,M
+        192E * EB         XCHG
+        192F * C3 B6 19   JMP L19B6
+        L1932:
+        1932 * 7E         MOV A,M
+        1933 * FE 1B      CPI 1BH
+        1935 * CA 53 19   JZ L1953
+        1938 * CD E1 19   CALL printer_out
+        L193B:
+        193B * 78         MOV A,B
+        193C * BC         CMP H
+        193D * C2 4F 19   JNZ L194F
+        1940 * 79         MOV A,C
+        1941 * BD         CMP L
+        1942 * C2 4F 19   JNZ L194F
+        1945 * 06 00      MVI B,00H
+        1947 * CD 4B 06   CALL chan_state_get
+        194A * 36 05      MVI M,05H
+        194C * C3 00 19   JMP printer_task
+        L194F:
+        194F * 23         INX H
+        1950 * C3 32 19   JMP L1932
+        L1953:
+        1953   23         INX H
+        1954   7E         MOV A,M
+        1955   FE 23      CPI 23H
+        1957   FA 6F 19   JM L196F
+        195A   FE 40      CPI 40H
+        195C   F2 6F 19   JP L196F
+        L195F:
+        195F   3E 20      MVI A,20H
+        1961   CD E1 19   CALL printer_out
+        1964   7E         MOV A,M
+        1965   3D         DCR A
+        1966   FE 20      CPI 20H
+        1968   CA 3B 19   JZ L193B
+        196B   77         MOV M,A
+        196C   C3 5F 19   JMP L195F
+        L196F:
+        196F   FE 40      CPI 40H
+        1971   CA 93 19   JZ L1993
+        1974   FE 41      CPI 41H
+        1976   CA 93 19   JZ L1993
+        1979   FE 43      CPI 43H
+        197B   FA 3B 19   JM L193B
+        197E   FE 50      CPI 50H
+        1980   F2 3B 19   JP L193B
+        L1983:
+        1983   3E 30      MVI A,30H
+        1985   CD E1 19   CALL printer_out
+        1988   7E         MOV A,M
+        1989   3D         DCR A
+        198A   FE 40      CPI 40H
+        198C   CA 3B 19   JZ L193B
+        198F   77         MOV M,A
+        1990   C3 83 19   JMP L1983
+        L1993:
+        1993   3E 0D      MVI A,0DH
+        1995   CD E1 19   CALL printer_out
+        1998   78         MOV A,B
+        1999   BC         CMP H
+        199A   C2 B6 19   JNZ L19B6
+        199D   79         MOV A,C
+        199E   BD         CMP L
+        199F   C2 B6 19   JNZ L19B6
+        19A2   06 00      MVI B,00H
+        19A4   CD 4B 06   CALL chan_state_get
+        19A7   36 05      MVI M,05H
+        19A9   3E 0A      MVI A,0AH
+        19AB   CD E1 19   CALL printer_out
+        19AE   3E 0D      MVI A,0DH
+        19B0   CD E1 19   CALL printer_out
+        19B3   C3 00 19   JMP printer_task
+        L19B6:
+        19B6 * 23         INX H
+        19B7 * 7E         MOV A,M
+        19B8 * FE 1B      CPI 1BH
+        19BA * CA 53 19   JZ L1953
+        19BD * FE 41      CPI 41H
+        19BF * C2 CA 19   JNZ L19CA
+        19C2   3E 0C      MVI A,0CH
+        19C4   CD E1 19   CALL printer_out
+        19C7   C3 3B 19   JMP L193B
+        L19CA:
+        19CA * FE 4A      CPI 4AH
+        19CC * C2 D4 19   JNZ L19D4
+        19CF   3E 0A      MVI A,0AH
+        19D1   CD E1 19   CALL printer_out
+        L19D4:
+        19D4 * 3E 0A      MVI A,0AH
+        19D6 * CD E1 19   CALL printer_out
+        19D9 * 3E 0D      MVI A,0DH
+        19DB * CD E1 19   CALL printer_out
+        19DE * C3 3B 19   JMP L193B
+
+        ;----------------------------------------------------------------------
+        ; printer_out  (19E1H)
+        ;   Wait for PPI_B bit 5 clear, write byte to PPI_A, pulse strobe on PC7
+        ;   (53h <- 0Eh/0Fh).
+        ;----------------------------------------------------------------------
+        printer_out:
+        19E1 * 57         MOV D,A
+        L19E2:
+        19E2 * F3         DI
+        19E3 * DB 51      IN PPI_B
+        19E5 * E6 20      ANI 20H
+        19E7 * C2 F7 19   JNZ L19F7
+        19EA * 7A         MOV A,D
+        19EB * D3 50      OUT PPI_A
+        19ED * 3E 0E      MVI A,0EH
+        19EF * D3 53      OUT PPI_CTL                ; 8255: PC7 reset (strobe low)
+        19F1 * 3E 0F      MVI A,0FH
+        19F3 * D3 53      OUT PPI_CTL                ; 8255: PC7 set (strobe high)
+        19F5 * FB         EI
+        19F6 * C9         RET
+        L19F7:
+        19F7   3E 02      MVI A,02H
+        19F9   CD C8 07   CALL task_switch
+        19FC   DB 51      IN PPI_B
+        19FE   E6 08      ANI 08H
+        1A00   CA E2 19   JZ L19E2
+        1A03   C3 F7 19   JMP L19F7
+
+        ;----------------------------------------------------------------------
+        ; buf_trim_tail  (1A06H)
+        ;   Drop the last two bytes (CR/LF) of a buffer by adjusting its end
+        ;   pointer; rewrite a trailing 12H as "A".
+        ;----------------------------------------------------------------------
+        buf_trim_tail:
+        1A06 * E5         PUSH H
+        1A07 * D5         PUSH D
+        1A08 * 11 05 00   LXI D,0005H
+        1A0B * 19         DAD D
+        1A0C * 5E         MOV E,M
+        1A0D * 23         INX H
+        1A0E * 56         MOV D,M
+        1A0F * 1B         DCX D
+        1A10 * 1B         DCX D
+        1A11 * 72         MOV M,D
+        1A12 * 2B         DCX H
+        1A13 * 73         MOV M,E
+        1A14 * 23         INX H
+        1A15 * 23         INX H
+        1A16 * 5E         MOV E,M
+        1A17 * 23         INX H
+        1A18 * 56         MOV D,M
+        1A19 * 13         INX D
+        1A1A * 13         INX D
+        1A1B * 1A         LDAX D
+        1A1C * FE 12      CPI 12H
+        1A1E * C2 27 1A   JNZ L1A27
+        1A21 * 3E 41      MVI A,41H
+        1A23 * 12         STAX D
+        1A24 * C3 28 1A   JMP L1A28
+        L1A27:
+        1A27 * 13         INX D
+        L1A28:
+        1A28 * 72         MOV M,D
+        1A29 * 2B         DCX H
+        1A2A * 73         MOV M,E
+        1A2B * D1         POP D
+        1A2C * E1         POP H
+        1A2D * 36 06      MVI M,06H
+        1A2F * C9         RET
+
+        ;============================================================================
+        ; 1A30-1BFF  ROM CHECKSUM AND UNUSED SPACE
+        ;============================================================================
+        1A30            DB   20H           ; checksum: 8-bit sum of 0000H-1A2FH
+        1A31-1BFF       DB   76H x 463  ; unused EPROM space (HLT)
+                END
