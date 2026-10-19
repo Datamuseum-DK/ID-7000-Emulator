@@ -16,7 +16,6 @@ from ROMs.
 .. toctree::
     :maxdepth: 3
     :caption: ID7000 A
-    :hidden: true
 
     id7000_a/info
     id7000_a/log
@@ -27,7 +26,6 @@ from ROMs.
 .. toctree::
     :maxdepth: 3
     :caption: ID7000 SPS/FUNK
-    :hidden: true
 
     id7000_sps/info
 
