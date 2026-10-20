@@ -1,6 +1,6 @@
-========================
-Reveng. notes - Claude
-========================
+
+Analysis - Claude
+=================
 
 .. note::
 
@@ -18,7 +18,7 @@ Reveng. notes - Claude
 
 
 Overview
-========
+--------
 
 The input was a single file, ``board5_eproms_0_to_6.bin``, containing the
 contents of seven 1 KB EPROMs (numbered 0 to 6). The work proceeded in five
@@ -31,7 +31,7 @@ steps:
 5. Trace the "Cyber link" routines and build a stub host for them.
 
 Summary of findings
--------------------
+^^^^^^^^^^^^^^^^^^^
 
 * The CPU is an **Intel 8080** (no Z80 or 8085-specific opcodes found).
 * The firmware is a small **preemptive multitasking** terminal concentrator /
@@ -47,7 +47,7 @@ Summary of findings
   frames.
 
 The ROM image
-=============
+-------------
 
 .. list-table::
    :widths: 30 70
@@ -73,7 +73,7 @@ Evidence for the 8080:
 * No RIM/SIM, so nothing 8085-specific.
 
 Memory map (inferred)
-=====================
+---------------------
 
 .. list-table::
    :header-rows: 1
@@ -93,7 +93,7 @@ Memory map (inferred)
      - Cyber-link state, per-channel records, buffers
 
 I/O map (inferred)
-==================
+------------------
 
 .. list-table::
    :header-rows: 1
@@ -130,7 +130,7 @@ and a command with enter-hunt, receive-enable and DTR.
 Status bits used by the firmware: bit 0 = TxRDY, bit 1 = RxRDY.
 
 Interrupt vectors
-=================
+-----------------
 
 .. list-table::
    :header-rows: 1
@@ -166,7 +166,7 @@ Interrupt vectors
      - ``JMP 0DA0h`` (restarts the system)
 
 Boot sequence
-=============
+-------------
 
 1. ``0000h``: ``DI``, jump to ``0DA0h``.
 2. ``0DA0h``: write ``0`` to port ``FEh``, send the 8251 reset sequence to
@@ -205,7 +205,7 @@ After boot, the first timer ticks cause the banner to be queued and printed
 on every channel (in the emulator, all 12 channels print it).
 
 Multitasking
-------------
+^^^^^^^^^^^^
 
 The routines at ``07C8h``-``085Fh`` save and restore the registers and stack
 pointer into a task table, giving a small preemptive scheduler:
@@ -218,7 +218,7 @@ pointer into a task table, giving a small preemptive scheduler:
 * ``02E0h`` onward: the task that services Cyber polls and queued output.
 
 Banner and message strings
---------------------------
+^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 .. list-table::
    :header-rows: 1
@@ -240,13 +240,13 @@ Banner and message strings
 mainframes, so the firmware is a *200UT simulator* running on the ID-7000.
 
 Where user input is handled
-===========================
+---------------------------
 
 A byte arriving on any async channel raises RST 6 and runs the receive
 handler.
 
 Route of a received byte
-------------------------
+^^^^^^^^^^^^^^^^^^^^^^^^
 
 .. code-block:: text
 
@@ -263,7 +263,7 @@ finds one with the requested status bit set, and returns the channel number
 in C.
 
 Indexed I/O tables
-------------------
+^^^^^^^^^^^^^^^^^^
 
 ``0D45h`` is a computed jump into a table of 4-byte entries. Each entry is
 ``IN port; RET; NOP`` or ``OUT port; RET; NOP``, so the port is selected by
@@ -285,7 +285,7 @@ channel number with the data byte still in A.
      - ``OUT`` control port
 
 Special characters
-------------------
+^^^^^^^^^^^^^^^^^^
 
 The handler at ``08B3h`` reacts to a few control characters:
 
@@ -296,7 +296,7 @@ The handler at ``08B3h`` reacts to a few control characters:
   are handled specially; their exact meaning was not pinned down.
 
 Local commands and the Cyber path
----------------------------------
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 At end of line the handler (``0917h``/``0918h``) checks whether the first
 character of the line is a colon (``3Ah``).
@@ -317,7 +317,7 @@ Call path observed for ``:STATUS`` plus CR:
      -> 15EC build_reply -> 1694 copy_str (x4) -> 0D45 port_stub (transmit loop)
 
 Local command table (``169Eh``)
--------------------------------
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Names are stored with a length byte in front. Commands observed in the
 emulator:
@@ -356,10 +356,10 @@ emulator:
    presumably echoing locally.
 
 The Cyber link
-==============
+--------------
 
 What it is
-----------
+^^^^^^^^^^
 
 The Cyber link is a **synchronous serial connection to a CDC Cyber
 mainframe**. It is not a device on the board; it is the *host* the ID-7000
@@ -377,7 +377,7 @@ The framing is bisync-like. The exact CDC 200UT protocol was not available, so
 the details below describe what the firmware does, *not* a published spec.
 
 Frame format
-------------
+^^^^^^^^^^^^
 
 .. code-block:: text
 
@@ -403,7 +403,7 @@ Frame format
        checks only the low 7 bits.
 
 Receive state machine (RST 2, ``005Bh``)
-----------------------------------------
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 State is held in ``A2F2h``; the running LRC is in ``A2F3h``
 (initialised to ``FEh`` at SOH, which is the complement of SOH).
@@ -443,7 +443,7 @@ byte goes to ``0087h``, which resets the state machine and writes ``96h``
 to ``A1h`` (re-enter hunt).
 
 Transmit state machine (RST 4, ``020Bh``)
------------------------------------------
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 The transmit-start routine at ``01D6h`` writes ``33h`` to ``A1h`` and sets a
 bit in port ``FEh``. State is kept in ``A2F9h``.
@@ -454,7 +454,7 @@ bit in port ``FEh``. State is kept in ``A2F9h``.
    -> trailing SYN  ->  write 96h to A1h (back to receive)
 
 Replies observed from the emulator
-----------------------------------
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 .. list-table::
    :header-rows: 1
@@ -482,7 +482,7 @@ and an idle poll returns:
    16 x11  01 70 60 18 03 F5 16
 
 Host to user data
------------------
+^^^^^^^^^^^^^^^^^
 
 The data portion must end with an ESC trailer, otherwise the ROM discards it
 (``03D4h``-``03F3h``):
@@ -503,7 +503,7 @@ The ``ctl`` byte also matters: ``11h`` gives plain text, while ``12h`` and
 ``0Ch`` put a ``1Fh`` byte in front (probably home or clear-screen).
 
 Link-lost timeout
------------------
+^^^^^^^^^^^^^^^^^
 
 SOH clears the counters at ``429Bh`` and ``429Ch``. The RST 3 handler
 decrements them; when both run out it sets ``429Dh`` and broadcasts
@@ -513,7 +513,7 @@ length depends on the tick rate, which is unknown.
 
 
 Methodology
-===========
+-----------
 
 The sequence of steps, so that the analysis can be repeated or extended:
 
@@ -535,7 +535,7 @@ The sequence of steps, so that the analysis can be repeated or extended:
    ``addr``/``dev``/``ctl`` and the ESC trailers to map the behaviour.
 
 Open questions
-==============
+--------------
 
 * Exact device types: the 8251 and 8255 identifications are inferred.
 * The real timer period and what produces RST 3; the real link-lost timeout.
@@ -554,7 +554,7 @@ Open questions
 * Whether the CDC 200UT protocol documentation matches this framing.
 
 Suggested next steps
---------------------
+^^^^^^^^^^^^^^^^^^^^
 
 * Run an 8080 exerciser against ``cpu8080.py``.
 * Check the device guesses against the board schematic or hardware manual.
@@ -564,7 +564,7 @@ Suggested next steps
   path.
 
 Appendix: key routine addresses
-===============================
+-------------------------------
 
 .. list-table::
    :header-rows: 1
