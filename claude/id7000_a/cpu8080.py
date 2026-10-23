@@ -3,41 +3,54 @@ PARITY=[bin(i).count('1')%2==0 for i in range(256)]
 
 class CPU8080:
     def __init__(self, bus):
-        self.bus=bus
-        self.a=self.b=self.c=self.d=self.e=self.h=self.l=0
-        self.sp=0; self.pc=0
-        self.s=self.z=self.ac=self.p=self.cy=False
-        self.ie=False; self.halted=False
+        self.bus = bus
+        self.a = self.b = self.c = self.d = self.e = self.h = self.l = 0
+        self.sp = 0; self.pc = 0
+        self.s = self.z = self.ac = self.p =self.cy = False
+        self.ie = False
+        self.halted=False
         self.cycles=0
         self.pending_irq=None   # RST vector number 0-7
 
     # --- register pairs
     @property
-    def bc(self): return self.b<<8|self.c
+    def bc(self): return self.b << 8 | self.c
     @bc.setter
-    def bc(self,v): self.b=v>>8&255; self.c=v&255
+    def bc(self,v):
+        self.b = v >> 8 & 255
+        self.c = v & 255
     @property
-    def de(self): return self.d<<8|self.e
+    def de(self): return self.d << 8 | self.e
     @de.setter
-    def de(self,v): self.d=v>>8&255; self.e=v&255
+    def de(self,v):
+        self.d = v >> 8 & 255
+        self.e = v & 255
     @property
-    def hl(self): return self.h<<8|self.l
+    def hl(self): return self.h << 8 | self.l
     @hl.setter
-    def hl(self,v): self.h=v>>8&255; self.l=v&255
+    def hl(self,v):
+        self.h = v >> 8 & 255
+        self.l=v&255
     @property
     def f(self):
         return (self.s<<7|self.z<<6|self.ac<<4|self.p<<2|2|self.cy)
     @f.setter
     def f(self,v):
-        self.s=bool(v&128); self.z=bool(v&64); self.ac=bool(v&16)
-        self.p=bool(v&4); self.cy=bool(v&1)
+        self.s=bool(v&128)
+        self.z=bool(v&64)
+        self.ac=bool(v&16)
+        self.p=bool(v&4)
+        self.cy=bool(v&1)
 
-    def rd(self,a): return self.bus.read(a&0xFFFF)
-    def wr(self,a,v): self.bus.write(a&0xFFFF,v&255)
+    def rd(self,a): return self.bus.read(a & 0xFFFF)
+    def wr(self,a,v): self.bus.write(a & 0xFFFF, v & 255)
     def fetch(self):
-        v=self.rd(self.pc); self.pc=(self.pc+1)&0xFFFF; return v
+        v = self.rd(self.pc)
+        self.pc = (self.pc + 1) & 0xFFFF
+        return v
     def fetch16(self):
-        lo=self.fetch(); return lo|self.fetch()<<8
+        lo = self.fetch()
+        return lo | self.fetch() << 8
     def push(self,v):
         self.sp=(self.sp-2)&0xFFFF; self.wr(self.sp,v); self.wr(self.sp+1,v>>8)
     def pop(self):
@@ -91,17 +104,29 @@ class CPU8080:
 
     def step(self):
         if self.pending_irq is not None and self.ie:
-            n=self.pending_irq; self.pending_irq=None
-            self.ie=False; self.halted=False
-            self.push(self.pc); self.pc=n*8; self.cycles+=11; return
+            n = self.pending_irq
+            self.pending_irq = None
+            self.ie = False
+            self.halted = False
+            self.push(self.pc)
+            self.pc = n * 8
+            self.cycles += 11
+            return
+        
         if self.halted:
-            self.cycles+=4; return
-        op=self.fetch(); self.cycles+=4
+            self.cycles+=4
+            return
+        
+        op = self.fetch()
+        self.cycles += 4
         if op==0x76: self.halted=True; return
+
         if 0x40<=op<0x80:
             self.setr(op>>3&7,self.getr(op&7)); return
+        
         if 0x80<=op<0xC0:
             self.alu(op>>3&7,self.getr(op&7)); return
+        
         x=op&7; y=op>>3&7
         if op<0x40:
             if x==0: return          # NOP (and undocumented nops)

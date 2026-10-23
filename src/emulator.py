@@ -87,6 +87,8 @@ class Emulator:
         kc = self.kc
         if self.key.kbhit():
             ch = ord(self.key.getch())
+            if ch == 10:
+                ch = 13
             if misc.isprintable(ch):
                 print(f'{chr(ch)}')
                 self.interrupt(6,ch)
@@ -120,15 +122,14 @@ class Emulator:
         tstart = timer()
         while True:
             if not self.halted:
-                # First take care of timer 'interrupt'
-                tend = timer()
-                if (tend - tstart) > 1.0:
-                    tstart = timer()
-                    io.timeout = True
 
                 # Prepare for next instruction(s)
                 pc = cpu.m.pc
                 self.icount += 1
+
+                # if cpu.m.sp > 1000 and self.icount % 5000:
+                #     self.interrupt(3, 0)
+
 
                 # Check for halt condition (invalid address )
                 if pc > 65530:
@@ -172,7 +173,7 @@ class Emulator:
 
 
             # Handle occasional keyboard input
-            if (self.icount % 1000) == 0: # int_disabled check?
+            if (self.icount % 2000) == 0: # int_disabled check?
                 self.kbd_input()
 
 

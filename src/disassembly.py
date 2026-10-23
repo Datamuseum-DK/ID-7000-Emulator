@@ -5,7 +5,6 @@
 import sys
 import argparse
 import devices.cpu as cpu
-import match
 import progs.programs as prg
 
 

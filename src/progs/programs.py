@@ -5,8 +5,10 @@
 
 import progs.id7k0018
 import progs.sps
+import progs.cputest
 
 proglist = {
         "id7ka"       : progs.id7k0018.id7ka,
-        "spsa"        : progs.sps.spsa
+        "spsa"        : progs.sps.spsa,
+        "cputest"     : progs.cputest.cputest
     }

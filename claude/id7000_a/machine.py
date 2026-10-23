@@ -13,6 +13,7 @@ Interrupts: RST2=sync RX, RST3=timer tick, RST4=sync TX, RST6=async RX.
 """
 from cpu8080 import CPU8080
 ROM_FILE='../src/roms/ID7K0018/board5_eproms_0_to_6.bin'
+#ROM_FILE='../src/roms/sps_and_funk.bin'
 
 class USART:
     """Minimal 8251: status bit0 TxRDY, bit1 RxRDY, bit2 TxEMPTY."""

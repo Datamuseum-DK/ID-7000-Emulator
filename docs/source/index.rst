@@ -36,3 +36,4 @@ from ROMs.
     :caption: ID7000 SPS/FUNK
 
     id7000_sps/info
+    id7000_sps/id7000_sps_funk
