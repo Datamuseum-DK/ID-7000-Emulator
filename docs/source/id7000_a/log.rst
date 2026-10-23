@@ -13,6 +13,8 @@ resonstructed from memory and emails
 2024 11 29
 ----------
 
+**ID-7000 A**
+
 Emulator is running. Log entry in danish copied from an email to DDF mailinglist.
 
 .. code-block:: text
@@ -114,12 +116,16 @@ Emulator is running. Log entry in danish copied from an email to DDF mailinglist
 2025 03 20
 ----------
 
+**ID-7000 A**
+
 Github repo created and the project was populated with the latest files.
 
 
 
 2025 03 25
 ----------
+
+**ID-7000 A**
 
 Added two flags --ramerr and --romerr used to simulate RAM and ROM errors.
 These cause printing of error messages to what is presumably
@@ -144,6 +150,9 @@ a terminal. Here is the output (using utils/logio) from two runs:
 
 2026 10 13
 ----------
+
+**ID-7000 A**
+
 Been playing around with the use of shared memory as a convenient 
 way of live debugging various address ranges of the 64k address 
 space. Did a proof of concept but couldn't get it to work.
@@ -151,6 +160,8 @@ space. Did a proof of concept but couldn't get it to work.
 
 2026 10 15
 ----------
+
+**ID-7000 A**
 
 emulator read/write callbacks
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -359,6 +370,8 @@ Which only leaves the following io addresses unknown (so far)
 2026 10 18
 ----------
 
+**ID-7000 A**
+
 New approach taken: upload ROMs to Google AI and Claude and see what that can do.
 
 Essentially by parsing the ROMs both quickly figured out the same as I have spent days on.
@@ -367,9 +380,18 @@ I then proceeded to use Claude to write a python based emulator.
 
 More about this later ...
 
+2026 10 20
+----------
+
+**ID-7000 A**
+
+Add screenshot of ID-7000 A emulation
+
 
 2026 10 24
 ----------
+
+**ID-7000 SPS**
 
 Running the emulator on the SPS + FUNK roms with nice progress
 
