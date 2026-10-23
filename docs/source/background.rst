@@ -62,7 +62,17 @@ There will eventually be a visit to the storehouse to check these out.
 This is a list of the ID-7000s that have been part of this investigation so far.
 
 
-ID-7000 A
+ID-7000 A (virtual)
+-------------------
+
+This ID-7000 is not yet associated with any particular chassis from DDF.
+
+The ROMs I used for the exploration and emulator were located on what is named
+Board 5 in the bitarchive: https://datamuseum.dk/wiki/Bits:30007085 which was
+almost, but not entirely, picked at random.
+
+
+ID-7000 B
 ---------
 
 This ID-7000 was rescued by Jørgen Albretsen. He writes:
@@ -78,18 +88,18 @@ This ID-7000 was rescued by Jørgen Albretsen. He writes:
     emulator). AD-DA, EPROM dertil...""
 
 .. figure:: images/original_docs.jpeg
-  :width: 600
+  :width: 400
   :align: center
 
   Manuals, documentation and ROMs in storage
 
 It is currently not known what (PCB) modules it contains.
 
-The current emulator just picked one ROM image from the bit archive to begin with.
 
 
 ID-7000 SPS
 -----------
+
 This one is on display at the museum. It is currently named by the title 
 of the ROM image. I should really have checked the labels at the back
 to identify it by the previuos owner.

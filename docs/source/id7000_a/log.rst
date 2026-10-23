@@ -368,3 +368,37 @@ I then proceeded to use Claude to write a python based emulator.
 More about this later ...
 
 
+2026 10 24
+----------
+
+Running the emulator on the SPS + FUNK roms with nice progress
+
+.. figure:: images/ipc1_emu.png
+  :width: 400
+  :align: center
+
+  Claude emulator running SPS + FUNK roms (demo_console.py)
+
+The image shows the result of emulating terminal input and output to the ID7000 SPS.
+
+Initially there is a welcome message and a small program menu with
+three options: C, D and P. Where P is a (assembler) program launcher.
+
+'P' is selected and we are prompted for a program priority. We select priority 3.
+
+The emulator verifies that the program is not running yet.
+
+Then a start address for the program is asked for and provided (7000h) where a 
+continuous counter loop is inserted. The program is launched.
+
+The emulator verifies that the program is running.
+
+We then type the escape character and we return to the main menu.
+
+I have not yet checked at this point if the program is still running.
+
+
+
+
+
+
