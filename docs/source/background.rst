@@ -23,7 +23,7 @@ All in order to preserve a virtual ID-7000 for the future and to allow others
 to pick up on this effort and correct and improve it.
 
 .. figure:: images/ID7000A.jpeg
-  :width: 800
+  :width: 600
   :align: center
 
   DDE ID7000 (A)
@@ -77,6 +77,12 @@ This ID-7000 was rescued by Jørgen Albretsen. He writes:
     indkøbt 1975 ref. billede, undervisning i EPROM forårssemester 1983 ref. print fra
     emulator). AD-DA, EPROM dertil...""
 
+.. figure:: images/original_docs.jpeg
+  :width: 600
+  :align: center
+
+  Manuals, documentation and ROMs in storage
+
 It is currently not known what (PCB) modules it contains.
 
 The current emulator just picked one ROM image from the bit archive to begin with.
@@ -84,11 +90,11 @@ The current emulator just picked one ROM image from the bit archive to begin wit
 
 ID-7000 SPS
 -----------
-This one is on display at the museum. It is currently name by the title 
+This one is on display at the museum. It is currently named by the title 
 of the ROM image. I should really have checked the labels at the back
 to identify it by the previuos owner.
 
-It has the following boards installed
+It has the following boards installed (examined at datamuseum 2026 10 22).
 
 .. list-table::
    :header-rows: 1
@@ -126,8 +132,3 @@ It has the following boards installed
      - Synchronous Data Communication Transmitter
 
 
-.. figure:: images/original_docs.jpeg
-  :width: 800
-  :align: center
-
-  Manuals, documentation and ROMs in storage
