@@ -12,16 +12,23 @@ Dansk Datahistorisk Forening (DDF). This repository is not aiming to cover
 any DDF scope regarding DDE as a company, its influence on the danish electronics 
 industry or its historical milestones.
 
-The purpose of this repository is threefold: It aims to
+The purpose of this repository is to
 
 * provide working emulators for ID-7000 variants and/or their peripherals
 * analyse the CPU software, programs and IO usages
 * establish the configuration of one or more ID-7000 systems in DDF's custody
 * present the relevant technical documentation that was used in the process
 
+All in order to preserve a virtual ID-7000 for the future and to allow others 
+to pick up on this effort and correct and improve it.
 
-According to legend (Poul Henning Kamp) DDF is in possession of seven Id-7000s.
-(There will eventually be a visit to the storehouse to check these out.)
+.. figure:: images/ID7000A.jpeg
+  :width: 800
+  :align: center
+
+  DDE ID7000 (A)
+
+
 
 DDF has photos of PCBs, ID-7000 chassis, digitised ROMs and paper tapes as 
 well as scanned manuals and other documentation. 
@@ -41,11 +48,38 @@ https://lex.dk/Dansk_Data_Elektronik
 Known ID-7000s
 ==============
 
+According to legend (Poul Henning Kamp) DDF is in possession of seven Id-7000s.
+There will eventually be a visit to the storehouse to check these out.
+
+.. figure:: images/chassis_drawing.jpeg
+  :width: 1024
+  :align: center
+
+  Chassis drawing, front and top view with board slot enumeration.
+
+
+
 This is a list of the ID-7000s that have been part of this investigation so far.
+
 
 ID-7000 A
 ---------
 
+This ID-7000 was rescued by Jørgen Albretsen. He writes:
+
+    "Jeg var den, der reddede den pågældende ID-7000 fra at blive smidt ud fra Aalborg
+    Universitet. Men nøjagtigt hvad den er blevet brugt til, ved jeg ikke. Vedlagt et
+    par billeder fra redningen, som skete i panik [removed text], så ikke alt kom med.
+    Finn har billeder. Men prøv at lokalisere de manualer og andet skriftligt, der vises
+    på et af billederne. De må enten være i bitarkivet eller et sted på Sjælland i et
+    fjernarkiv. Kunne fortælle mere. Mit gæt på brug er undervisning i proceskontrol el.
+    lign. for ingeniørstuderende på Aalborg Universitetscenter (startet 1974, ID-7000
+    indkøbt 1975 ref. billede, undervisning i EPROM forårssemester 1983 ref. print fra
+    emulator). AD-DA, EPROM dertil...""
+
+It is currently not known what (PCB) modules it contains.
+
+The current emulator just picked one ROM image from the bit archive to begin with.
 
 
 ID-7000 SPS
@@ -54,4 +88,46 @@ This one is on display at the museum. It is currently name by the title
 of the ROM image. I should really have checked the labels at the back
 to identify it by the previuos owner.
 
-It has XXX boards in it
+It has the following boards installed
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 18 60
+
+   * - Slot
+     - Board
+     - Description
+   * - 1
+     - ID-7005
+     - Manual Control Module
+   * - 2
+     - ID-7000
+     - CPU Module
+   * - 4
+     - ID-7007?
+     - RAM (xx kB)
+   * - 5
+     - ID-7003
+     - Interrupt/timer (10ms timer interrupt)
+   * - 7
+     - ID-7037
+     - DRAM
+   * - 9
+     - n/a
+     - Parallel extension/debug board (no function)
+   * - 11
+     - ID-7033
+     - ROM (SPS 1-5 + FUNK 1-3)
+   * - 13
+     - ID-7038
+     - Unknown so far (lots of LM74xxx)
+   * - 15
+     - ID-7012
+     - Synchronous Data Communication Transmitter
+
+
+.. figure:: images/original_docs.jpeg
+  :width: 800
+  :align: center
+
+  Manuals, documentation and ROMs in storage
