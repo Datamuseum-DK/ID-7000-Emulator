@@ -15,6 +15,13 @@ from ROMs.
 
 .. toctree::
     :maxdepth: 3
+    :caption: Background
+
+    background
+
+
+.. toctree::
+    :maxdepth: 3
     :caption: ID7000 A
 
     id7000_a/info
@@ -40,5 +47,5 @@ from ROMs.
 .. toctree::
     :maxdepth: 3
     :caption: ID7000 SPS - Claude
-    
+
     id7000_sps/claude_sps_funk

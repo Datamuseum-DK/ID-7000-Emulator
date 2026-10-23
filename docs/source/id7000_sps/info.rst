@@ -24,6 +24,5 @@ Info/References
    https://datamuseum.dk/wiki/Bits:30006586
 
 
-   For an overview of all ID-7000 artifacts:
-   https://datamuseum.dk/wiki/Bits:Keyword/DDE/ID-7000
+  
 
