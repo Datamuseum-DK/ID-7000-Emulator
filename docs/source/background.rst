@@ -51,7 +51,7 @@ Known ID-7000s
 According to legend (Poul Henning Kamp) DDF is in possession of seven Id-7000s.
 There will eventually be a visit to the storehouse to check these out.
 
-.. figure:: images/chassis_drawing.jpeg
+.. figure:: images/chassis_drawing.png
   :width: 1024
   :align: center
 
