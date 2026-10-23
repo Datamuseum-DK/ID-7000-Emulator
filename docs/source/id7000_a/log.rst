@@ -373,7 +373,7 @@ More about this later ...
 
 Running the emulator on the SPS + FUNK roms with nice progress
 
-.. figure:: images/ipc1_emu.png
+.. figure:: ../images/ipc1_emu.png
   :width: 400
   :align: center
 
