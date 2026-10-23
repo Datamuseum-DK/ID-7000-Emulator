@@ -36,4 +36,8 @@ from ROMs.
     :caption: ID7000 SPS/FUNK
 
     id7000_sps/info
-    id7000_sps/id7000_sps_funk
+
+.. toctree::
+    :maxdepth: 3
+    :caption: ID7000 SPS - Claude
+    id7000_sps/claude_sps_funk

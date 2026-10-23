@@ -1,6 +1,6 @@
-=====================================================================
-ID-7000 IPC/1 + SPC/1 Firmware (SPS_1-5 and FUNK_1-3): Analysis
-=====================================================================
+ 
+Analysis - Claude
+==================
 
 .. contents:: Contents
    :local:
@@ -17,7 +17,7 @@ ID-7000 IPC/1 + SPC/1 Firmware (SPS_1-5 and FUNK_1-3): Analysis
    *unverified* where that matters.
 
 Summary
-=======
+-------
 
 * The CPU is a plain **Intel 8080**. There is no ``RIM``/``SIM`` and no 8085-only
   opcode. The vector at ``0024h`` (the 8085 TRAP address) jumps to ``F000h``,
@@ -38,7 +38,7 @@ Summary
   ``P``.
 
 Image layout
-============
+------------
 
 .. list-table::
    :header-rows: 1
@@ -65,7 +65,7 @@ Text is Danish in the 7-bit national character set: ``[`` is Æ, ``\\`` is Ø an
 "VÆLG IMELLEM FØLGENDE".
 
 Memory map (inferred)
-=====================
+---------------------
 
 .. list-table::
    :header-rows: 1
@@ -110,7 +110,7 @@ The upper limit is not confirmed. The emulator treats everything above the
 ROM as RAM.
 
 I/O map (inferred)
-==================
+------------------
 
 .. list-table::
    :header-rows: 1
@@ -147,7 +147,7 @@ so the ``IN`` and ``OUT`` instructions for those ports do not appear in the
 ROM.
 
 Interrupts and vectors
-======================
+----------------------
 
 .. list-table::
    :header-rows: 1
@@ -185,7 +185,7 @@ emulator must raise RST 2 or RST 4 *while* a UART has received data, or has its
 transmitter enabled and empty.
 
 Boot sequence
-=============
+-------------
 
 1. ``0000h``: ``DI``, jump to ``00CAh``.
 2. Write ``0`` to ``FEh``, read ``FFh``.
@@ -203,10 +203,10 @@ Boot sequence
    the scheduler.
 
 The kernel (IPC/1)
-==================
+------------------
 
 Processes
----------
+^^^^^^^^^
 
 The table at ``01F5h``-``026Ch`` holds eight 15-byte entries: PCB address,
 priority (0 is highest), two queue pointers and a word, four id bytes and the
@@ -254,7 +254,7 @@ Six more PCB templates at ``026Dh``-``02C6h`` (15 bytes each) are used by the
 ``P`` command for operator-started processes.
 
 Scheduling
-----------
+^^^^^^^^^^
 
 * There are 8 ready queues at ``4014h`` + 5 x priority.
 * The timer ISR (RST 1) counts ticks, signals the 5-tick semaphore, and
@@ -266,7 +266,7 @@ Scheduling
   A user process should therefore wait on a semaphore regularly.
 
 API jump table (``0040h``-``00C9h``)
-------------------------------------
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 A table of ``JMP`` instructions at fixed addresses, used by the function
 library and by user code. Entries identified so far:
@@ -313,7 +313,7 @@ library and by user code. Entries identified so far:
      - Wait for and return an aux frame
 
 Console and operator dialog
-===========================
+---------------------------
 
 The console is a terminal with ADM-style escape sequences: ``ESC +`` clears the
 screen, ``ESC = row col`` positions the cursor (both offset by ``20h``) and
@@ -321,7 +321,7 @@ screen, ``ESC = row col`` positions the cursor (both offset by ``20h``) and
 some sequences.
 
 Input handling
---------------
+^^^^^^^^^^^^^^
 
 The path of a typed character is:
 
@@ -335,7 +335,7 @@ The path of a typed character is:
 * A completed line wakes the reader through ``SEM_CON_LINE`` (``48AFh``).
 
 Menu and commands
------------------
+^^^^^^^^^^^^^^^^^
 
 The dialog process (``09CFh``) draws the menu once and then reads commands
 (upper and lower case are accepted):
@@ -361,10 +361,10 @@ The dialog process (``09CFh``) draws the menu once and then reads commands
      - ``INDTASTNINGSFEJL !``, then the prompt ``KOMMANDO :`` again.
 
 The aux link
-============
+------------
 
 Link layer
-----------
+^^^^^^^^^^
 
 .. code-block:: text
 
@@ -390,7 +390,7 @@ Link layer
   (``FFh``).
 
 Message layer
--------------
+^^^^^^^^^^^^^
 
 A request is ``ADDR N`` followed by *N* sub-messages. Each sub-message is
 ``len code args...`` where ``len`` counts itself.
@@ -412,7 +412,7 @@ The ROM also sends an unprompted pair ``03 79 00 03 7A 00 00`` (the "start-up"
 announcement) in the reply to the first frame.
 
 Commands
---------
+^^^^^^^^
 
 The command code, masked with ``7Fh``, indexes a 128-word jump table at
 ``1CABh``. Replies seen in the emulator:
@@ -489,10 +489,10 @@ The command code, masked with ``7Fh``, indexes a 128-word jump table at
      - Illegal command, reply code ``3Bh``.
 
 The PLC runtime (SPC/1)
-=======================
+-----------------------
 
 I/O configuration
------------------
+^^^^^^^^^^^^^^^^^
 
 The table at ``2114h`` is a list of (type, base port) pairs ending in ``FFFFh``:
 
@@ -514,7 +514,7 @@ The table at ``2114h`` is a list of (type, base port) pairs ending in ``FFFFh``:
      - Analog input modules.
 
 Main cycle
-----------
+^^^^^^^^^^
 
 The process at ``1FB2h`` loops forever:
 
@@ -528,7 +528,7 @@ The process at ``1FB2h`` loops forever:
 A scan cycle takes about 7,700 emulated instructions.
 
 Process images
---------------
+^^^^^^^^^^^^^^
 
 Each digital point has one byte in the image, with the current state in bit 0 and
 the previous state (for edge detection) in bit 1; an active input appears as
@@ -537,7 +537,7 @@ the previous state (for edge detection) in bit 1; an active input appears as
 (inputs) or ``10h`` (outputs).
 
 Analog scan
------------
+^^^^^^^^^^^
 
 For each module the firmware writes the current mux channel (0-7, advancing once
 per scan) to the module's even port, writes the odd port as a start strobe, waits
@@ -548,7 +548,7 @@ starting near ``77F0h``. In the emulator model a value of *v* is stored as
 understood.
 
 Program download and loader
----------------------------
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 A program is downloaded with command ``1Eh``. Each block is the sub-message
 ``len 1E block-no more data...``:
@@ -592,7 +592,7 @@ After relocation the operands become ``21 55 5A`` and ``21 D5 52``. With port
 ``20h`` bit 0 pulled low, port ``10h`` bit 0 goes high on the next cycle.
 
 Function library (FUNK)
------------------------
+^^^^^^^^^^^^^^^^^^^^^^^
 
 The table at ``2800h``-``287Fh`` has 64 words. Word *n* is the entry of function
 block *n* (0000h = not implemented). 23 entries are used (numbers 01-0A,
@@ -613,7 +613,7 @@ What each function block does (timer, counter, arithmetic, ...) has not been
 determined.
 
 The emulator
-============
+------------
 
 The package ``id7000_sps_emu`` contains:
 
@@ -662,7 +662,7 @@ PLC demo output:
    input 0 active   -> output 0 = True   (port 20h=FE, port 10h=01)
 
 Model details that matter
--------------------------
+^^^^^^^^^^^^^^^^^^^^^^^^^
 
 * RST 1 is raised every ``TICK = 4000`` steps (a guess at the tick rate).
 * RST 4 is raised while the console UART has received data (and the
@@ -675,7 +675,7 @@ Model details that matter
   higher priority starves the dialog.
 
 Comparison with the board 5 image
-=================================
+---------------------------------
 
 Both images are 8080 firmware for the ID-7000 and share the same hardware
 family.
@@ -720,7 +720,7 @@ tick acknowledge, and both pad vectors with ``76h``. The code is otherwise
 unrelated.
 
 Open questions
-==============
+--------------
 
 * What command codes ``02h``-``0Fh``, ``34h``, ``40h``-``47h``, ``59h`` and
   ``5Fh`` do exactly, and why ``0Eh`` never answers.
@@ -736,7 +736,7 @@ Open questions
   ``F000h`` provides.
 
 Appendix: key addresses
-=======================
+-----------------------
 
 .. list-table::
    :header-rows: 1
