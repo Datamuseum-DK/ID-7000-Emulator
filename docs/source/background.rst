@@ -121,20 +121,20 @@ It has the following boards installed (examined at datamuseum 2026 10 22).
      - ID-7000
      - CPU Module
    * - 4
-     - ID-7007?
-     - RAM (xx kB)
+     - ID-7037
+     - DRAM 32KB
    * - 5
      - ID-7003
      - Interrupt/timer (10ms timer interrupt)
    * - 7
      - ID-7037
-     - DRAM
+     - DRAM 16KB
    * - 9
      - n/a
      - Parallel extension/debug board (no function)
    * - 11
      - ID-7033
-     - ROM (SPS 1-5 + FUNK 1-3)
+     - ROM 16KB (SPS 1-5 + FUNK 1-3)
    * - 13
      - ID-7038
      - Unknown so far (lots of LM74xxx)
@@ -173,6 +173,19 @@ D8080AFC
 SN74S412N MULTI-MODE BUFFERED LATCHES x3
 
 
+Slot 4 DDE 7037
+^^^^^^^^^^^^^^^
+
+.. figure:: id7000_sps/images/DDE_70XX.jpg
+  :width: 400
+  :align: center
+
+  RAM Module 32KB
+
+MM5290 16 x 16k bit dynamic ram
+MC3242A
+
+
 Slot 5 DDE 7003
 ^^^^^^^^^^^^^^^
 
@@ -189,23 +202,21 @@ Contains the following main ICs
 uPB8212 8 bit I/O port
 
 
+Slot 7 DDE 7037
+^^^^^^^^^^^^^^^
 
-
-
-DDE 7012
-^^^^^^^^
-
-.. figure:: id7000_sps/images/DDE_7012.jpg
+.. figure:: id7000_sps/images/DDE_7037.jpg
   :width: 400
   :align: center
 
-  4-port Async./sync. communication module
+  Dynamic RAM module 16KB 
 
-https://datamuseum.dk/bits/30005408
+https://datamuseum.dk/bits/30005418
 
 Contains the following main ICs
 
-D8251AC (1 out of 4 possible)
+MB8116H x 8
+MC3242A
 
 
 Slot 11 DDE 7033
@@ -225,22 +236,6 @@ Contains the following main ICs
 
 MSM2716AS EPROM 2k x 8 bit
 
-
-Slot 7 DDE 7037
-^^^^^^^^^^^^^^^
-
-.. figure:: id7000_sps/images/DDE_7037.jpg
-  :width: 400
-  :align: center
-
-  Dynamic RAM module 16KB 
-
-https://datamuseum.dk/bits/30005418
-
-Contains the following main ICs
-
-MB8116H x 8
-MC3242A
 
 
 Slot 13 DDE 7038
@@ -262,17 +257,26 @@ Contains the following main ICs
 MC3242A
 
 
-Slot 7 DDE 7037
-^^^^^^^^^^^^^^^
 
-.. figure:: id7000_sps/images/DDE_70XX.jpg
+Slot 15 DDE 7012
+^^^^^^^^^^^^^^^^
+
+.. figure:: id7000_sps/images/DDE_7012.jpg
   :width: 400
   :align: center
 
-  RAM Module 32KB
+  4-port Async./sync. communication module
 
-MM5290 16k x 1bit dynamic ram
-MC3242A
+https://datamuseum.dk/bits/30005408
+
+Contains the following main ICs
+
+D8251AC (1 out of 4 possible)
+
+
+
+
+
 
 
 Known software images
