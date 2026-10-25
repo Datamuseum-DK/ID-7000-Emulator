@@ -215,13 +215,59 @@ DDE 7033
   ROM Module 16KB (83 01 11)
 
 No documentation but presumably an evolution of the
-`DDE 7001 <https://datamuseum.dk/bits/30005399 />`_  board
+`DDE 7001 <https://datamuseum.dk/bits/30005399/>`_  board
 which only allowed up to 8KB.
 
 Contains the following main ICs
 
 MSM2716AS EPROM 2k x 8 bit
 
+
+DDE 7037
+^^^^^^^^
+
+.. figure:: id7000_sps/images/DDE_7037.jpg
+  :width: 400
+  :align: center
+
+  Dynamic RAM module 16KB 
+
+https://datamuseum.dk/bits/30005418
+
+Contains the following main ICs
+
+MB8116H x 8
+
+
+DDE 7038
+^^^^^^^^
+
+.. figure:: id7000_sps/images/DDE_7038.jpg
+  :width: 400
+  :align: center
+
+  RAM Refresh Module
+
+https://datamuseum.dk/bits/30005419
+
+The board layout doesn't look like the schematics shown in the manual, so 
+a bit of an inconsistency here.
+
+Contains the following main ICs
+
+MC3242A
+
+
+DDE 70XX
+^^^^^^^^
+
+.. figure:: id7000_sps/images/DDE_70XX.jpg
+  :width: 400
+  :align: center
+
+  Unknown Module
+
+  
 
 
 Known software images
