@@ -152,6 +152,58 @@ DDE 7000
 
   CPU module (1980 03 20)
 
+https://datamuseum.dk/bits/30005393
+
+Contains the following main ICs
+
+D8080AFC
+
+SN74S412N MULTI-MODE BUFFERED LATCHES x3
+
+
+DDE 7003
+^^^^^^^^
+
+.. figure:: id7000_sps/images/DDE_7003.jpg
+  :width: 400
+  :align: center
+
+  Interrupt priority Module
+
+https://datamuseum.dk/bits/30005402
+
+Contains the following main ICs
+
+uPB8212 8 bit I/O port
+
+
+DDE 7005
+^^^^^^^^
+
+.. figure:: id7000_sps/images/DDE_7005.jpg
+  :width: 400
+  :align: center
+
+  Manual Control Module
+
+https://datamuseum.dk/bits/30005404
+
+
+DDE 7012
+^^^^^^^^
+
+.. figure:: id7000_sps/images/DDE_7012.jpg
+  :width: 400
+  :align: center
+
+  4-port Async./sync. communication module
+
+https://datamuseum.dk/bits/30005408
+
+Contains the following main ICs
+
+D8251AC (1 out of 4 possible)
+
 
 Known software images
 =====================
