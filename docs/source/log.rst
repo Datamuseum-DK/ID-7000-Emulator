@@ -6,8 +6,12 @@ This project started around November 22, 2024. Some code was quickly put
 together based on the building blocks from the Q1 emulator project.
 
 A github repo was created March 20 2025. Log entries before then have been
-resonstructed from memory and emails
+resonstructed from memory and emails.
 
+The logbook covers what happens on specific dates and as such it may jump 
+between different ID-7000 configurations such as **ID-7000 A** and **ID 7000 SPS**.
+
+See :ref:`id7000_variants` for a list of known ID7000s and ROM images.
 
 
 2024 11 29

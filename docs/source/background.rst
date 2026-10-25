@@ -45,6 +45,8 @@ https://da.wikipedia.org/wiki/Dansk_Data_Elektronik
 https://lex.dk/Dansk_Data_Elektronik
 
 
+.. _id7000_variants:
+
 Known ID-7000s
 ==============
 
@@ -56,7 +58,6 @@ There will eventually be a visit to the storehouse to check these out.
   :align: center
 
   Chassis drawing, front and top view with board slot enumeration.
-
 
 
 This is a list of the ID-7000s that have been part of this investigation so far.
@@ -142,3 +143,7 @@ It has the following boards installed (examined at datamuseum 2026 10 22).
      - Synchronous Data Communication Transmitter
 
 
+Known sofware images
+====================
+
+TBA

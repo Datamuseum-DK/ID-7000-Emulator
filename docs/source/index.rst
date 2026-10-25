@@ -18,14 +18,13 @@ from ROMs.
     :caption: Background
 
     background
-
+    log
 
 .. toctree::
     :maxdepth: 3
     :caption: ID7000 A
 
     id7000_a/info
-    id7000_a/log
     id7000_a/annotate
     emulator/emulator
 
