@@ -45,7 +45,9 @@ class Cpu:
 
     def info(self, dump=True, bt=True):
         if dump:
-            self.mem.hexdump(0x2000, 0x4000)
+            #self.mem.hexdump(0x2000, 0x4000)
+            print("hexdump is currently not supported")
+            pass
         if bt:
             for l in self.bt:
                 print(l)

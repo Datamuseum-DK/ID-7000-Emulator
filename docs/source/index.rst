@@ -49,3 +49,4 @@ from ROMs.
     :caption: ID7000 SPS - Claude
 
     id7000_sps/claude_sps_funk
+    id7000_sps/annotate
