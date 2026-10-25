@@ -176,7 +176,7 @@ SN74S412N MULTI-MODE BUFFERED LATCHES x3
 Slot 4 DDE 7037
 ^^^^^^^^^^^^^^^
 
-.. figure:: id7000_sps/images/DDE_70XX.jpg
+.. figure:: id7000_sps/images/DDE_7037B.jpg
   :width: 400
   :align: center
 
@@ -215,7 +215,7 @@ https://datamuseum.dk/bits/30005418
 
 Contains the following main ICs
 
-MB8116H x 8
+MB8116H 8 x 16k bit dynamic ram
 MC3242A
 
 
