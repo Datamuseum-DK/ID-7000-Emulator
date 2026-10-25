@@ -143,7 +143,17 @@ It has the following boards installed (examined at datamuseum 2026 10 22).
      - Synchronous Data Communication Transmitter
 
 
-Known sofware images
-====================
+DDE 7000
+^^^^^^^^
+
+.. figure:: id7000_sps/images/DDE_7000.jpg
+  :width: 400
+  :align: center
+
+  CPU module (1980 03 20)
+
+
+Known software images
+=====================
 
 TBA
