@@ -143,8 +143,20 @@ It has the following boards installed (examined at datamuseum 2026 10 22).
      - Synchronous Data Communication Transmitter
 
 
-DDE 7000
-^^^^^^^^
+Slot 1 DDE 7005
+^^^^^^^^^^^^^^^
+
+.. figure:: id7000_sps/images/DDE_7005.jpg
+  :width: 400
+  :align: center
+
+  Manual Control Module
+
+https://datamuseum.dk/bits/30005404
+
+
+Slot 2 DDE 7000
+^^^^^^^^^^^^^^^
 
 .. figure:: id7000_sps/images/DDE_7000.jpg
   :width: 400
@@ -161,8 +173,8 @@ D8080AFC
 SN74S412N MULTI-MODE BUFFERED LATCHES x3
 
 
-DDE 7003
-^^^^^^^^
+Slot 5 DDE 7003
+^^^^^^^^^^^^^^^
 
 .. figure:: id7000_sps/images/DDE_7003.jpg
   :width: 400
@@ -177,16 +189,7 @@ Contains the following main ICs
 uPB8212 8 bit I/O port
 
 
-DDE 7005
-^^^^^^^^
 
-.. figure:: id7000_sps/images/DDE_7005.jpg
-  :width: 400
-  :align: center
-
-  Manual Control Module
-
-https://datamuseum.dk/bits/30005404
 
 
 DDE 7012
@@ -205,8 +208,8 @@ Contains the following main ICs
 D8251AC (1 out of 4 possible)
 
 
-DDE 7033
-^^^^^^^^
+Slot 11 DDE 7033
+^^^^^^^^^^^^^^^^
 
 .. figure:: id7000_sps/images/DDE_7033.jpg
   :width: 400
@@ -223,8 +226,8 @@ Contains the following main ICs
 MSM2716AS EPROM 2k x 8 bit
 
 
-DDE 7037
-^^^^^^^^
+Slot 7 DDE 7037
+^^^^^^^^^^^^^^^
 
 .. figure:: id7000_sps/images/DDE_7037.jpg
   :width: 400
@@ -237,10 +240,11 @@ https://datamuseum.dk/bits/30005418
 Contains the following main ICs
 
 MB8116H x 8
+MC3242A
 
 
-DDE 7038
-^^^^^^^^
+Slot 13 DDE 7038
+^^^^^^^^^^^^^^^^
 
 .. figure:: id7000_sps/images/DDE_7038.jpg
   :width: 400
@@ -258,16 +262,17 @@ Contains the following main ICs
 MC3242A
 
 
-DDE 70XX
-^^^^^^^^
+Slot 7 DDE 7037
+^^^^^^^^^^^^^^^
 
 .. figure:: id7000_sps/images/DDE_70XX.jpg
   :width: 400
   :align: center
 
-  Unknown Module
+  RAM Module 32KB
 
-  
+MM5290 16k x 1bit dynamic ram
+MC3242A
 
 
 Known software images
