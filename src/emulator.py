@@ -20,10 +20,10 @@ class Emulator:
     def on_write(self, address, value):
         assert value < 256
         assert address < 65536
-        if address < 0x1C00: #
-            print(f"write to ROM (0x{address:04x}), val {value} pc {self.cpu.m.pc:04x} warning, no effect ...")
-            #self.cpu.exit()
-            return
+        # if address < 0x1C00: #
+        #     print(f"write to ROM (0x{address:04x}), val {value} pc {self.cpu.m.pc:04x} warning, no effect ...")
+        #     #self.cpu.exit()
+        #     return
         if self.args.ramerr:
             if 0x6000 < address < 0x6003:
                 print(f'FAKE INVALID WRITE TO RAM (address {address})')
@@ -48,6 +48,7 @@ class Emulator:
         self.steps = self.defaultsteps
 
         self.io = self.prgobj["io"].IO(self.cpu.m)
+        self.prghook = self.prgobj["hook"]
 
         self.key = kbd.Key()
         self.kc = kbd.KeyboardCodes()
@@ -114,18 +115,24 @@ class Emulator:
 
 
     # Main emulator loop
+    
     def run(self):
         args = self.args
         io = self.io
         cpu = self.cpu
 
         tstart = timer()
+        t = ""
         while True:
             if not self.halted:
 
                 # Prepare for next instruction(s)
                 pc = cpu.m.pc
                 self.icount += 1
+
+                t = self.prghook(cpu, t)
+
+
 
                 # if cpu.m.sp > 1000 and self.icount % 5000:
                 #     self.interrupt(3, 0)
