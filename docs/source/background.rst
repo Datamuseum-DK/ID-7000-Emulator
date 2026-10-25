@@ -205,6 +205,25 @@ Contains the following main ICs
 D8251AC (1 out of 4 possible)
 
 
+DDE 7033
+^^^^^^^^
+
+.. figure:: id7000_sps/images/DDE_7033.jpg
+  :width: 400
+  :align: center
+
+  ROM Module 16KB (83 01 11)
+
+No documentation but presumably an evolution of the
+`DDE 7001 <https://datamuseum.dk/bits/30005399 />`_  board
+which only allowed up to 8KB.
+
+Contains the following main ICs
+
+MSM2716AS EPROM 2k x 8 bit
+
+
+
 Known software images
 =====================
 
