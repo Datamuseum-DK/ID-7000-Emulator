@@ -7,19 +7,30 @@ Interrupts: RST1 timer, RST2 aux UART, RST4 console UART."""
 from cpu8080 import CPU8080
 import os
 
-#ROM_FILE=os.path.join(os.path.dirname(os.path.abspath(__file__)),'sps_funk_image.bin')
-ROM_FILE="../../src/roms/sps_and_funk.bin"
+ROM_FILE=os.path.join(os.path.dirname(os.path.abspath(__file__)),'sps_funk_image.bin')
 
 class USART:
-    def __init__(self): self.rx=[]; self.tx=bytearray(); self.log=[]; self.state='cmd'; self.mode=None; self.txen=False; self.rxen=False
+    """Minimal 8251. Received bytes wait in a FIFO and enter the one-byte holding register at the
+    serial character rate (Machine.CHAR_STEPS steps apart), so a fast burst of keys is not lost."""
+    def __init__(self):
+        self.rx=[]; self.tx=bytearray(); self.log=[]; self.state='cmd'; self.mode=None
+        self.txen=False; self.rxen=False; self.hold=None; self.next_at=0; self.clock=lambda:0; self.gap=420
     def ctrl_w(self,v):
         self.log.append(v)
         if self.state=='mode': self.mode=v; self.state='cmd'; return
         if v&0x40: self.state='mode'; self.txen=self.rxen=False; return
         self.txen=bool(v&1); self.rxen=bool(v&4)
-    def status(self): return (0x05 if True else 0)|(0x02 if self.rx else 0)
-    def data_r(self): return self.rx.pop(0) if self.rx else 0
+    def status(self): return 0x05|(0x02 if self.hold is not None else 0)
+    def data_r(self):
+        v=self.hold
+        if v is None: return 0
+        self.hold=None; self.next_at=self.clock()+self.gap; return v
     def data_w(self,v): self.tx.append(v)
+    def pump(self):
+        if self.hold is None and self.rx and self.clock()>=self.next_at: self.hold=self.rx.pop(0)
+    @property
+    def rdy(self): return self.hold is not None
+
 class Bus:
     def __init__(self,rom,trace_io=False):
         self.rom=rom; self.ram=bytearray(0x10000)
@@ -37,12 +48,15 @@ class Bus:
         self.outputs[p]=v
         h=self.out_handlers.get(p)
         if h: h(p,v)
+
 class Machine:
     TICK=4000
-    def __init__(self,trace_io=False):
-        self.rom=open(ROM_FILE,'rb').read()
-        self.bus=Bus(self.rom,trace_io); self.cpu=CPU8080(self.bus); self.steps=0
+    CHAR_STEPS=420            # about 1 ms per character at 9600 baud and 400k steps/s
+    def __init__(self,romfile=ROM_FILE, trace_io=False):
+        self.rom=open(romfile,'rb').read()
+        self.bus=Bus(self.rom,trace_io); self.cpu=CPU8080(self.bus); self.steps=0; self.ticks=0
         self.con=USART(); self.aux=USART()
+        for u in (self.con,self.aux): u.clock=lambda:self.steps; u.gap=self.CHAR_STEPS
         b=self.bus
         b.in_handlers[0x60]=lambda p:self.con.data_r(); b.in_handlers[0x61]=lambda p:self.con.status()
         b.out_handlers[0x60]=lambda p,v:self.con.data_w(v); b.out_handlers[0x61]=lambda p,v:self.con.ctrl_w(v)
@@ -54,10 +68,11 @@ class Machine:
         c=self.cpu
         for _ in range(n):
             c.step(); self.steps+=1
+            if self.steps%12==0: self.con.pump(); self.aux.pump()
             if c.pending_irq is None and c.ie:
-                if self.steps%self.TICK==0: c.interrupt(1)                       # timer tick
-                elif self.steps%24==0 and (self.con.rx and self.con.rxen or self.con.txen): c.interrupt(4)   # console
-                elif self.steps%24==12 and (self.aux.rx and self.aux.rxen or self.aux.txen): c.interrupt(2)  # aux line
+                if self.steps%self.TICK==0: c.interrupt(1); self.ticks+=1                       # timer tick
+                elif self.steps%24==0 and (self.con.rdy and self.con.rxen or self.con.txen): c.interrupt(4)   # console
+                elif self.steps%24==12 and (self.aux.rdy and self.aux.rxen or self.aux.txen): c.interrupt(2)  # aux line
     # ---- console helpers
     def type(self,text,gap=60000):
         for ch in text: self.con.rx.append(ord(ch)); self.run(gap)

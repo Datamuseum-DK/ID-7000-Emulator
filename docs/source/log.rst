@@ -425,6 +425,21 @@ I have not yet checked at this point if the program is still running.
 
 
 
+2026 10 26
+----------
 
+**ID-7000 SPS**
+
+Palying with Claude's capabilities. Here asking for an interactive emulator. Didn't 
+specify much but it spun up a curses application. We still don't know exactly what 
+this ROM images does and currently only the process launch 'P' option seem to 
+do something.
+
+
+.. figure:: is7000_sps/images/emulator_interactive.png
+  :width: 400
+  :align: center
+
+  Interactive emulator
 
 

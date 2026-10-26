@@ -347,7 +347,13 @@ The dialog process (``09CFh``) draws the menu once and then reads commands
    * - Key
      - Behaviour
    * - ``C``
-     - "Dialog med SPC/1": in this image it only redraws the menu.
+     - "Dialog med SPC/1": the dispatch (``CPI 43h`` / ``CPI 63h`` at ``0A03h``
+       and ``0A12h``) jumps to ``0BA5h``, which is only ``JMP 09DDh``. The menu is
+       redrawn without clearing the screen and the dialog returns to the prompt.
+       No SPC/1 variable is touched, and nothing else in the image calls the
+       console I/O routines (``00BBh``/``00BEh``), so the console is not
+       connected to the command interpreter. In this image the SPC/1 dialog is
+       the aux link; the ``C`` entry is a stub.
    * - ``D``
      - "Hop til debugger": ``DI; CALL F008h``. The debugger ROM is not part
        of the image.
@@ -435,8 +441,9 @@ The command code, masked with ``7Fh``, indexes a 128-word jump table at
      - Reply 2 bytes.
    * - ``0Eh``
      - ``1656h``
-     - Never answers; the command interpreter is blocked afterwards. Probably
-       waits for an event.
+     - No reply in any of my tests (no arguments, and a count followed by
+       two-byte entries, which is what the loop appears to read). The cause was
+       not determined, and the interpreter stays blocked afterwards.
    * - ``0Fh``
      - ``1688h``
      - Reply 5 zero bytes (status).
@@ -637,6 +644,10 @@ The package ``id7000_sps_emu`` contains:
      - Boot, menu, ``P`` command, ESC, invalid command.
    * - ``demo_plc.py``
      - Aux link, download, run, digital and analog I/O.
+   * - ``interactive.py``
+     - Curses front end (see below). ``--selftest`` runs a scripted test without a terminal.
+   * - ``disasm.py``
+     - Small 8080 disassembler used by the debugger view.
    * - ``sps_funk_image.bin``
      - The combined 16 KB image.
 
@@ -661,10 +672,55 @@ PLC demo output:
    relocated code   -> 21 55 5a 7e 21 d5 52 77 c9
    input 0 active   -> output 0 = True   (port 20h=FE, port 10h=01)
 
+Interactive front end
+^^^^^^^^^^^^^^^^^^^^^
+
+``python3 interactive.py`` runs the machine in real time in a terminal of at least
+80 x 26 characters (120 columns or more also shows the side panel). Everything typed goes
+to the operator console, with Enter sent as ``0Dh``, Backspace as ``08h`` and Esc as
+``1Bh``. ``Ctrl-]`` is the emulator prefix:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 14 86
+
+   * - Key
+     - Action
+   * - ``q`` ``p`` ``s``
+     - Quit, pause, change speed (x0.25 to maximum).
+   * - ``i``
+     - Toggle a digital input point (0-159).
+   * - ``a``
+     - Set an analog value (module, channel, value).
+   * - ``l`` ``L``
+     - Download the demo program, or the code in a hex file, over the aux link.
+   * - ``r`` ``x`` ``v`` ``c``
+     - Run, stop, read the version string, send a raw aux command.
+   * - ``b``
+     - Break into the built-in debugger.
+   * - ``d`` ``n`` ``h``
+     - Show or hide the panel, switch between Danish and raw characters, help.
+
+The panel shows the step and tick counts, the PLC state, the digital input and output
+ports, the analog values and a log of aux-link commands and replies.
+
+The ROM's ``D`` command (``DI; CALL F008h``) needs a debugger ROM that is not in the
+image. Without one, the call runs through about 4,000 ``NOP`` bytes of empty RAM, the
+program counter wraps from ``FFFFh`` to ``0000h`` and the system reboots. The front end
+intercepts ``F008h`` and ``F000h`` (the TRAP vector target) and shows a small monitor
+instead: registers, a disassembly at the program counter, the stack and a memory dump.
+``s`` steps, ``c`` continues by performing the ``RET`` the real debugger would do (the
+ROM then clears the screen and redraws the menu), ``g`` continues without the ``RET``,
+``m`` dumps memory and ``b`` toggles a breakpoint. This is an emulator tool, not the
+original debugger.
+
 Model details that matter
 ^^^^^^^^^^^^^^^^^^^^^^^^^
 
 * RST 1 is raised every ``TICK = 4000`` steps (a guess at the tick rate).
+* Received bytes enter a one-byte holding register about 420 steps apart (roughly one
+  character time at 9600 baud). Without this pacing two keys arriving together lost a
+  character in the ROM, because the real 8251 also holds only one byte.
 * RST 4 is raised while the console UART has received data (and the
   receiver is on) or has its transmitter enabled. RST 2 does the same for the
   aux UART.

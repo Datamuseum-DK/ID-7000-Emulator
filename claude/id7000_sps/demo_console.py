@@ -1,67 +1,67 @@
 """Boot the IPC/1 image and use the operator dialog on the console."""
 from machine import Machine
+import terminal
 import sys
 
-class Terminal:
+# class Terminal:
+#     def __init__(self):
+#         self.rxbuf = []
 
-    def __init__(self):
-        self.rxbuf = []
+#     def feed(self, data):
+#         #print(data)
+#         self.rxbuf += data
 
-    def feed(self, data):
-        #print(data)
-        self.rxbuf += data
-
-    def render(self):
-        out = ""
-        i = 0
-        while i < len(self.rxbuf):
-            ch = self.rxbuf[i]
-            if ch == 27:
-                #print('rxbuf', self.rxbuf[i:i+10])
-                ec = self.rxbuf[i + 1]
-                if ec == 43:
-                    print('ESC+ - clrscr() ?')
-                    i += 1
-                    pass
-                elif ec == 61:
-                    row = self.rxbuf[i+1] - 32
-                    col = self.rxbuf[i+2] - 32
-                    #print(f'ESC= - row/col {row}/{col}')
-                    print(out)
-                    out=""
-                    i += 3
-                elif ec == 84:
-                    #print('ESCT - ?')
-                    i += 1
-                else:
-                    #print(f'ESC{chr(ec)} ({ec}) ')
-                    #print(self.rxbuf[i:i+4])
-                    i += 1
-                    sys.exit()
-            elif 32<= ch <= 127:
-                ach = chr(ch)
-                if ach == '[':
-                    out += 'Æ'
-                elif ach == '\\':
-                    out += 'Ø'
-                else:
-                    out += ach
-            elif ch == 0:
-                pass
-            else:
-                print(ch)
-                #print(out)
-                #out = ""
+#     def render(self):
+#         out = ""
+#         i = 0
+#         while i < len(self.rxbuf):
+#             ch = self.rxbuf[i]
+#             if ch == 27:
+#                 #print('rxbuf', self.rxbuf[i:i+10])
+#                 ec = self.rxbuf[i + 1]
+#                 if ec == 43:
+#                     print('ESC+ - clrscr() ?')
+#                     i += 1
+#                     pass
+#                 elif ec == 61:
+#                     row = self.rxbuf[i+1] - 32
+#                     col = self.rxbuf[i+2] - 32
+#                     #print(f'ESC= - row/col {row}/{col}')
+#                     print(out)
+#                     out=""
+#                     i += 3
+#                 elif ec == 84:
+#                     #print('ESCT - ?')
+#                     i += 1
+#                 else:
+#                     #print(f'ESC{chr(ec)} ({ec}) ')
+#                     #print(self.rxbuf[i:i+4])
+#                     i += 1
+#                     sys.exit()
+#             elif 32<= ch <= 127:
+#                 ach = chr(ch)
+#                 if ach == '[':
+#                     out += 'Æ'
+#                 elif ach == '\\':
+#                     out += 'Ø'
+#                 else:
+#                     out += ach
+#             elif ch == 0:
+#                 pass
+#             else:
+#                 print(ch)
+#                 #print(out)
+#                 #out = ""
                
-            i += 1
-        self.rxbuf = []
-        print(out)
+#             i += 1
+#         self.rxbuf = []
+#         print(out)
 
 
 
-def prog1():
-    m=Machine()
-    t=Terminal()
+def prog1(rom):
+    m=Machine(rom)
+    t=terminal.Terminal()
     m.run(2_000_000)
     t.feed(m.take())
     print('=== screen after boot ===')
@@ -101,12 +101,16 @@ def prog1():
     print('=== after ESC (back to the menu) ===')
     t.render()
 
+    m.run(500000)
+    c1=m.bus.ram[0x7F00]
+    m.run(5000000)
+    c2=m.bus.ram[0x7F00]
+    print('process counter at 7F00h: %d -> %d (running: %s)'%(c1,c2,c1!=c2))
 
 
 
-
-def prog2():
-    m=Machine()
+def prog2(rom):
+    m=Machine(rom)
     t=Terminal()
     m.run(2_000_000)
     t.feed(m.take())
@@ -130,5 +134,6 @@ def prog2():
 
 
 
-prog1()
-#prog2()
+rom = '../../src/roms/sps_and_funk.bin'
+prog1(rom)
+#prog2(rom)

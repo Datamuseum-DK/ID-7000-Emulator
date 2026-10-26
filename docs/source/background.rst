@@ -137,7 +137,7 @@ It has the following boards installed (examined at datamuseum 2026 10 22).
      - ROM 16KB (SPS 1-5 + FUNK 1-3)
    * - 13
      - ID-7038
-     - Unknown so far (lots of LM74xxx)
+     - RAM refresh Module
    * - 15
      - ID-7012
      - Synchronous Data Communication Transmitter
