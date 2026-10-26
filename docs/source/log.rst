@@ -443,7 +443,7 @@ Run it as
 
 
 .. figure:: id7000_sps/images/emulator_interactive.png
-  :width: 400
+  :width: 600
   :align: center
 
   Interactive emulator
