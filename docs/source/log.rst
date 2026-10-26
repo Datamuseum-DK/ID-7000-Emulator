@@ -399,8 +399,8 @@ Add screenshot of ID-7000 A emulation
 
 Running the emulator on the SPS + FUNK roms with nice progress
 
-.. figure:: ../images/ipc1_emu.png
-  :width: 400
+.. figure:: images/ipc1_emu.png
+  :width: 700
   :align: center
 
   Claude emulator running SPS + FUNK roms (demo_console.py)
@@ -443,7 +443,7 @@ Run it as
 
 
 .. figure:: id7000_sps/images/emulator_interactive.png
-  :width: 600
+  :width: 700
   :align: center
 
   Interactive emulator
