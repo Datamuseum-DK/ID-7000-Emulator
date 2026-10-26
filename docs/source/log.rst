@@ -435,8 +435,14 @@ specify much but it spun up a curses application. We still don't know exactly wh
 this ROM images does and currently only the process launch 'P' option seem to 
 do something.
 
+Run it as
 
-.. figure:: is7000_sps/images/emulator_interactive.png
+.. code-block:: text
+
+  > python interactive.py
+
+
+.. figure:: id7000_sps/images/emulator_interactive.png
   :width: 400
   :align: center
 
