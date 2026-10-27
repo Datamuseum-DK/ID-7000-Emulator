@@ -47,6 +47,7 @@ HELP = """\
 
 
 rom = '../../src/roms/sps_and_funk.bin'
+#rom = '../../src/roms/ID7K0018/board5_eproms_0_to_6.bin'
 
 class DebugBreak(Exception):
     pass
@@ -383,6 +384,7 @@ class App:
                  % (c.a, c.b, c.c, c.d, c.e, c.h, c.l, c.sp, c.pc, flags, int(c.ie)))
         self.put(4, 1, 'Code', curses.A_BOLD)
         a = c.pc
+        #a = (d['mem']) & 0xFFFF  # for memory disassembly
         for i in range(10):
             n, t = disasm(rd, a)
             mark = '>' if i == 0 else (('*' if a in self.breaks else ' '))
@@ -390,7 +392,7 @@ class App:
         self.put(4, 50, 'Stack', curses.A_BOLD)
         for i in range(6):
             sp = (c.sp + 2 * i) & 0xFFFF
-            self.put(5 + i, 50, '%04X: %04X' % (sp, rd(sp) | rd(sp + 1) << 8))
+            self.put(5 + i, 50, '%04X: %04X ' % (sp, rd(sp) | rd(sp + 1) << 8))
         self.put(16, 1, 'Memory %04X' % d['mem'], curses.A_BOLD)
         for i in range(6):
             base = (d['mem'] + 16 * i) & 0xFFFF
