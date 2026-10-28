@@ -50,3 +50,13 @@ from ROMs.
     id7000_sps/claude_sps_funk
     id7000_sps/annotate
 
+
+.. toctree::
+    :maxdepth: 3
+    :caption: DocTest
+
+    claude/board5_terminal_concentrator
+    claude/board5_usage
+    claude/sps_funk_ipc1
+    claude/sps_funk_usage
+    claude/comparison
