@@ -1,7 +1,8 @@
 
 from machine import Machine
 
-m=Machine(trace_io=True)
+rom_file='../../src/roms/ID7K0018/board5_eproms_0_to_6.bin'
+m=Machine(rom_file, trace_io=True)
 m.boot()
 
 for line in [":STATUS", ":HP,ON", ":FOO", "HELLO", ":STATUS"]:

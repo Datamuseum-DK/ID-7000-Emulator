@@ -52,9 +52,9 @@ class Bus:
 class Machine:
     TICK=4000
     CHAR_STEPS=420            # about 1 ms per character at 9600 baud and 400k steps/s
-    def __init__(self,romfile=ROM_FILE, trace_io=False):
-        self.rom=open(romfile,'rb').read()
-        self.bus=Bus(self.rom,trace_io); self.cpu=CPU8080(self.bus); self.steps=0; self.ticks=0
+    def __init__(self,rom_file, trace_io=False):
+        self.rom=open(rom_file,'rb').read()
+        self.bus=Bus(self.rom,trace_io); self.cpu=CPU8080(self.bus); self.steps=0; self.ticks=0; self.tick_due=False
         self.con=USART(); self.aux=USART()
         for u in (self.con,self.aux): u.clock=lambda:self.steps; u.gap=self.CHAR_STEPS
         b=self.bus
@@ -69,8 +69,9 @@ class Machine:
         for _ in range(n):
             c.step(); self.steps+=1
             if self.steps%12==0: self.con.pump(); self.aux.pump()
+            if self.steps%self.TICK==0: self.tick_due=True          # the tick is latched until it can be taken
             if c.pending_irq is None and c.ie:
-                if self.steps%self.TICK==0: c.interrupt(1); self.ticks+=1                       # timer tick
+                if self.tick_due: c.interrupt(1); self.ticks+=1; self.tick_due=False                  # timer tick
                 elif self.steps%24==0 and (self.con.rdy and self.con.rxen or self.con.txen): c.interrupt(4)   # console
                 elif self.steps%24==12 and (self.aux.rdy and self.aux.rxen or self.aux.txen): c.interrupt(2)  # aux line
     # ---- console helpers

@@ -1,5 +1,5 @@
-IPC/1 + SPC/1 Image: Running the Emulator Scripts
-=================================================
+SPS/FUNK Emulator Scripts
+=========================
 
 .. contents:: Contents
    :local:

@@ -12,8 +12,6 @@ I/O map (inferred):
 Interrupts: RST2=sync RX, RST3=timer tick, RST4=sync TX, RST6=async RX.
 """
 from cpu8080 import CPU8080
-ROM_FILE='../src/roms/ID7K0018/board5_eproms_0_to_6.bin'
-#ROM_FILE='../src/roms/sps_and_funk.bin'
 
 class USART:
     """Minimal 8251: status bit0 TxRDY, bit1 RxRDY, bit2 TxEMPTY."""
@@ -42,9 +40,8 @@ class Bus:
 
 class Machine:
     TICK=2500                      # CPU steps per RST 3 tick (guess)
-    
-    def __init__(self,trace_io=False):
-        self.rom=open(ROM_FILE,'rb').read()
+    def __init__(self,rom_file, trace_io=False):
+        self.rom=open(rom_file,'rb').read()
         self.bus=Bus(self.rom,trace_io); self.cpu=CPU8080(self.bus)
         self.ch=[USART() for _ in range(12)]; self.steps=0
         for n,u in enumerate(self.ch):

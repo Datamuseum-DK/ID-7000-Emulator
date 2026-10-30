@@ -1,5 +1,5 @@
-Comparison of the Two ID-7000 ROM Images
-========================================
+ROM Image Comparison
+====================
 
 .. contents:: Contents
    :local:

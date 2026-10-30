@@ -1,5 +1,5 @@
-Board 5 Image: Running the Emulator Scripts
-===========================================
+'A' Emulator Scripts
+====================
 
 .. contents:: Contents
    :local:

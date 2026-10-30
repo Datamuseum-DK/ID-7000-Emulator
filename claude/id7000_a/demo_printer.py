@@ -2,8 +2,10 @@ from machine import Machine
 from sync import Sync8251, CyberHost, attach
 from printer import Printer, attach_printer, print_via_host, tab, zeros, CR_OVERPRINT
 
+rom_file='../../src/roms/ID7K0018/board5_eproms_0_to_6.bin'
+
 def fresh(**kw):
-    m = Machine(); s = Sync8251(); attach(m, s)
+    m = Machine(rom_file); s = Sync8251(); attach(m, s)
     p = attach_printer(m, Printer(**kw)); m.boot()
     host = CyberHost(m, s); host.poll()      # bring the link up
     return m, host, p

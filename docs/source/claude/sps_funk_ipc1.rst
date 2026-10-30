@@ -1,5 +1,5 @@
-ID-7000 IPC/1 + SPC/1 Firmware (SPS_1-5 and FUNK_1-3)
-=====================================================
+SPS and FUNK ROM Analysis
+=========================
 
 .. contents:: Contents
    :local:
