@@ -43,13 +43,14 @@ from ROMs.
 
     id7000_sps/info
 
+
 .. toctree::
     :maxdepth: 3
-    :caption: ID7000 SPS - Claude
-
+    :caption: ID7000 SPS/FUNK - Claude
+    
     id7000_sps/claude_reveng
     id7000_sps/claude_emulator
-    id7000_sps/annotate
+    id7000_sps/claude_annotate
 
 .. toctree::
     :maxdepth: 3
