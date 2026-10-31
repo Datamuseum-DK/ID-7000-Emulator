@@ -9,7 +9,7 @@ import sphinx_rtd_theme
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
 project = 'ID-7000 Emulator'
-copyright = '2025, Morten Jagd Christensen'
+copyright = '2024 - 2026, Morten Jagd Christensen'
 author = 'Morten Jagd Christensen'
 
 # -- General configuration ---------------------------------------------------

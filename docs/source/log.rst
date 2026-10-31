@@ -461,16 +461,21 @@ The necessary steps:
 
 Compile the counter program
 
+.. code-block:: text
+
     > python asm8080.py examples/ctr32.asm --hex examples/crt32.hex
 
 Launch the emulator and watch address 7FF0H where the 32 bit counter resides
 
+.. code-block:: text
+
     > python interactive.py --watch 7ff0
 
-Load the program by entering the debugger menu (Ctrl-] followed by L) and specify
-the program name (examples/ctr32.hex)
+Load the program by entering the debugger menu (Ctrl-] L) and specify
+the program name (examples/ctr32.hex).
 
-Launch the program with 'P' followed by priority '3' and address 807C.
+Launch the program with 'P' followed by priority '3' (1 to 3 works) and launch
+address 807C.
 
 The counter now runs in the background and the main menu is still active.
 
