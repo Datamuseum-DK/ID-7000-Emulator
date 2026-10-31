@@ -1,0 +1,5 @@
+#!/bin/bash
+echo "Assemble ctr32.asm"
+python asm8080.py examples/ctr32.asm --hex examples/ctr32.hex
+echo "Assemble fib.asm"
+python asm8080.py examples/fib.asm --hex examples/fib.hex

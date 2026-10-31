@@ -195,6 +195,9 @@ emulator's own keys:
      - Read the version string; send a raw aux command (prompts for ``code args``, in hex)
    * - ``b``
      - Break into the debugger
+   * - ``R``
+     - Restart the system (command ``3Ah``). This is the only way to stop an
+       operator-started process
    * - ``d`` ``n`` ``h``
      - Show or hide the panel; switch Danish and raw characters; help
 
@@ -220,9 +223,9 @@ Walk-through 2: a PLC program
    panel shows output 0 on. Repeat to switch it off again.
 4. ``Ctrl-]`` then ``a``, type ``0 1 700`` and Enter, to give module 0 channel 1 a
    value.
-5. ``Ctrl-]`` then ``x`` stops the program. **Stop the program before
-   downloading anything else**, because a download overwrites the code that the
-   PLC cycle calls every scan.
+5. ``Ctrl-]`` then ``x`` stops the program. Stop it before downloading a new
+   one: while it runs, the ROM refuses a download (status 1) and the front end
+   shows ``download refused``.
 
 Walk-through 3: the Fibonacci process
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -241,6 +244,11 @@ Walk-through 3: the Fibonacci process
 
 Priorities 1 to 3 work. A process at priority 4 or lower never runs, because the
 PLC cycle (priority 4) never blocks.
+
+To stop the process, restart the system with ``Ctrl-]`` then ``R``. IPC/1 has no call
+that stops a single process, and a process that executes ``RET`` at its top level
+does not end cleanly (see :doc:`sps_funk_ipc1`). Up to six processes can be
+started this way; the seventh gets ``INGEN PROCESKONTROLBLOKKE LEDIGE``.
 
 Walk-through 4: the debugger
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -373,9 +381,9 @@ The Esc key feels slow
    Run the script from the ``id7000_sps_emu`` folder or keep the files together.
    Do not ``pip install terminal``.
 
-Downloading hangs the PLC or does nothing
-   Stop the program first (``Ctrl-]`` ``x``). The aux link needs the first frame
-   (``connect()``) before commands are answered.
+``download refused: the PLC program is running``
+   The ROM refuses a download in state 3. Stop the program first (``Ctrl-]`` ``x``).
+   Commands are also only answered after the first frame (``connect()``).
 
 The Fibonacci numbers change every five seconds
    The ticks per second are not 500. Run with ``--tick-hz 500`` or change

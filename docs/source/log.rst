@@ -454,6 +454,8 @@ Run it as
 
 **ID-7000 SPS**
 
+**First loadable process**
+
 Finally understood enough of the SPS(PLC) loading and executing process to
 be able to launch a program of my own. It is a simple 32-bit counter.
 
@@ -484,3 +486,10 @@ The counter now runs in the background and the main menu is still active.
   :align: center
 
   The ctr32 program, loaded at address 807C. Aux communication and watch address displayed.
+
+
+Fibonacci
+^^^^^^^^^
+
+Iv'e also added a 16 bit Fibonacci counter program **examples/fib.hex**. The load and execute
+commands are the same as above.

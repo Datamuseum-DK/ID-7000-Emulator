@@ -1,6 +1,7 @@
 SPS and FUNK ROM Analysis
 =========================
 
+
 .. contents:: Contents
    :local:
    :depth: 2
@@ -311,7 +312,8 @@ entry point.
      - PLC main cycle.
 
 Six more PCB templates at ``026Dh``-``02C6h`` (15 bytes each) are used by the
-``P`` command for operator-started processes.
+``P`` command for operator-started processes. Each template becomes one of six
+slots whose in-use flags are at ``4846h``-``484Bh``.
 
 Scheduling
 ~~~~~~~~~~
@@ -378,14 +380,16 @@ Writing a process for the P command
 
 The operator command ``P`` is a front end for the process creation call at
 ``00A0h`` (routine ``0942h``): ``A`` = priority (1-8), ``HL`` = start address.
-It takes one of six free PCB slots and returns with carry set when none is free.
-What was learned while writing a test process:
+It returns with carry set when no slot is free. The ``P`` command itself checks
+six slots (flags ``4846h``-``484Bh``); the call at ``00A0h`` only looks at the
+first three. What was learned while writing and testing processes:
 
 * **Getting code into RAM.** The menu has no loader. The aux-link download
   command ``1Eh`` stores bytes from ``8000h`` and does not check them, so it can
   also carry an ordinary 8080 program as long as that program is never started
-  with command ``20h`` 1. Stop a running PLC program first (``20h`` 0), because
-  the download overwrites the code that the PLC cycle calls every scan.
+  with command ``20h`` 1. The ROM refuses a download while the PLC program is
+  running (reply status 1, nothing is written), so stop the program first
+  (``20h`` 0).
 * **Priority.** A process at priority 1-3 runs. A process at priority 4 or lower
   never ran in the tests, because the PLC cycle process (priority 4) does not
   block. A busy loop at priority 3 also kept the dialog process (priority 3)
@@ -404,6 +408,57 @@ What was learned while writing a test process:
   taken as 500 ticks.
 * **Kernel calls used.** ``00B8h`` waits on the semaphore at ``BC``, ``00B2h``
   signals it, ``00BBh`` and ``00BEh`` read and write the console.
+
+Where the code goes
+^^^^^^^^^^^^^^^^^^^
+
+Two different things can be loaded and they follow different rules:
+
+* An operator-started process (``P``) starts at **any address** that is typed. The
+  ROM only stores the address, so the code must already be in RAM (or ROM).
+* The PLC program that the cycle process calls is always downloaded to ``8000h``
+  and always entered at ``807Ch``. It is not a process: while the state is 3 the
+  PLC cycle calls it as a subroutine once per scan. Only one such program exists
+  at a time.
+
+Several processes
+^^^^^^^^^^^^^^^^^
+
+* Eight system processes start at boot (table at ``01F5h``).
+* ``P`` can start up to **six** more. The seventh attempt prints
+  ``INGEN PROCESKONTROLBLOKKE LEDIGE``. In a test, six counting processes ran side
+  by side, and the clock process kept its 100 pulses per emulated second.
+* The creation call ``00A0h`` that a process can make itself only checks the first
+  three slots, so a process can start at most three others, and those slots are
+  shared with ``P``.
+* Each process has its own stack inside its PCB block. For the first slot the
+  stack top is at PCB+5Fh and the area runs down to about PCB+23h, roughly 60
+  bytes (read from the creation code at ``01A9h``-``01E5h``, not stress-tested).
+* Several processes can wait on the same semaphore. A process that passes every
+  event on after receiving it (as ``fib.asm`` does) leaves the others and the
+  clock process undisturbed.
+
+Stopping a process
+^^^^^^^^^^^^^^^^^^
+
+IPC/1 has **no call that stops or removes a process**, and nothing in the ROM ever
+clears a slot flag. What happens in practice, all tested in the emulator:
+
+* **Returning from the entry (RET) is not an exit.** The creation code leaves only
+  the entry address on the new stack, followed by a ``FFh`` guard byte. A ``RET`` at
+  the top level therefore goes to ``00FFh`` and runs the middle of the boot code
+  (it reaches the console initialisation at ``07B9h``). The result is undefined.
+  The system kept running in the test, but the process is lost and its slot stays
+  used.
+* **Waiting forever** on a semaphore that nobody signals parks the process. It
+  never runs again but keeps its slot, so one slot fewer remains.
+* **Restarting the system** stops everything. Aux command ``3Ah``, or ``20h`` with
+  argument 2, jumps to ``0000h``. Boot clears ``4000h``-``4BB1h``, which includes the
+  slot flags, and recreates the eight system processes. RAM above that (program
+  code, counters) is not cleared, but nothing runs it any more. The front end
+  offers this as ``Ctrl-]`` ``R``.
+* **The PLC program** is different: ``20h`` with argument 0 stops it (state 2),
+  because it is only a subroutine of the PLC cycle.
 
 A worked example, a process that publishes a Fibonacci number at ``7100h`` once
 per second, is described in :doc:`sps_funk_usage`.
@@ -700,12 +755,18 @@ Program download and loader
 A program is downloaded with command ``1Eh``. Each block is the sub-message
 ``len 1E block-no more data...``:
 
-* block number 0 resets the load pointer (``4C00h``) to ``8000h``;
-* the reply is ``1E block-no state 00``;
+* block number 0 resets the load pointer (``4C00h``) to ``8000h``, a constant in
+  the ROM (``16EBh``);
+* the reply data is ``block-no more status``: status 0 means accepted, 1 means
+  refused because the program is running (state 3), 2 means a block out of
+  sequence;
 * a block with ``more = 0`` is the last one and sets the PLC state to 1
   ("loaded");
 * the image has a 7Ch-byte header area at ``8000h`` and the code starts at
-  ``807Ch``.
+  ``807Ch``. The entry address is set once at initialisation (``121Dh``) and
+  nothing changes it. The header starts with the program name, a zero-terminated
+  string of up to 40 characters, which command ``60h`` returns after the state
+  byte and the version string.
 
 Command ``20h`` with argument 1 starts the program. The loader at ``2359h``
 first relocates the code **in place** and then sets the state to 3 ("running").
