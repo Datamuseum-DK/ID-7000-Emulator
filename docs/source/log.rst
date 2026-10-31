@@ -449,3 +449,33 @@ Run it as
   Interactive emulator
 
 
+2026 10 31
+----------
+
+**ID-7000 SPS**
+
+Finally understood enough of the SPS(PLC) loading and executing process to
+be able to launch a program of my own. It is a simple 32-bit counter.
+
+The necessary steps:
+
+Compile the counter program
+
+    > python asm8080.py examples/ctr32.asm --hex examples/crt32.hex
+
+Launch the emulator and watch address 7FF0H where the 32 bit counter resides
+
+    > python interactive.py --watch 7ff0
+
+Load the program by entering the debugger menu (Ctrl-] followed by L) and specify
+the program name (examples/ctr32.hex)
+
+Launch the program with 'P' followed by priority '3' and address 807C.
+
+The counter now runs in the background and the main menu is still active.
+
+.. figure:: id7000_sps/images/ctr32prog.png
+  :width: 700
+  :align: center
+
+  The ctr32 program, loaded at address 807C. Aux communication and watch address displayed.

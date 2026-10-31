@@ -54,16 +54,24 @@ class Machine:
     CHAR_STEPS=420            # about 1 ms per character at 9600 baud and 400k steps/s
     def __init__(self,rom_file, trace_io=False):
         self.rom=open(rom_file,'rb').read()
-        self.bus=Bus(self.rom,trace_io); self.cpu=CPU8080(self.bus); self.steps=0; self.ticks=0; self.tick_due=False
-        self.con=USART(); self.aux=USART()
-        for u in (self.con,self.aux): u.clock=lambda:self.steps; u.gap=self.CHAR_STEPS
+        self.bus=Bus(self.rom,trace_io)
+        self.cpu=CPU8080(self.bus)
+        self.steps=0
+        self.ticks=0
+        self.tick_due=False
+        self.con=USART()
+        self.aux=USART()
+        for u in (self.con,self.aux):
+            u.clock=lambda:self.steps
+            u.gap=self.CHAR_STEPS
         b=self.bus
         b.in_handlers[0x60]=lambda p:self.con.data_r(); b.in_handlers[0x61]=lambda p:self.con.status()
         b.out_handlers[0x60]=lambda p,v:self.con.data_w(v); b.out_handlers[0x61]=lambda p,v:self.con.ctrl_w(v)
         b.in_handlers[0x08]=lambda p:self.aux.data_r(); b.in_handlers[0x09]=lambda p:self.aux.status()
         b.out_handlers[0x08]=lambda p,v:self.aux.data_w(v); b.out_handlers[0x09]=lambda p,v:self.aux.ctrl_w(v)
         b.in_handlers[0xFF]=lambda p:0
-        for p in range(0x20,0x34): b.inputs[p]=0xFF        # all digital inputs inactive
+        for p in range(0x20,0x34):
+            b.inputs[p]=0xFF        # all digital inputs inactive
     def run(self,n):
         c=self.cpu
         for _ in range(n):

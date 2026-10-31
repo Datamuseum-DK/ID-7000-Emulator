@@ -3,6 +3,8 @@
 
     python3 interactive.py            run with the panel and the built-in debugger
     python3 interactive.py --ascii    show the Danish letters as [ \\ ] { | } (raw ROM text)
+    python3 interactive.py --tick-hz 100   timer ticks per second at speed x1 (default 500)
+    python3 interactive.py --watch 7FF0    show 8 bytes at this (hex) address in the panel
     python3 interactive.py --selftest scripted test without a terminal
 
 Keys
@@ -46,9 +48,6 @@ HELP = """\
  Digital inputs are active low: the panel shows '#' for an active point."""
 
 
-rom = '../../src/roms/sps_and_funk.bin'
-#rom = '../../src/roms/ID7K0018/board5_eproms_0_to_6.bin'
-
 class DebugBreak(Exception):
     pass
 
@@ -57,7 +56,8 @@ class App:
     def __init__(self, scr, args, machine=None):
         self.scr = scr
         self.args = args
-        self.m = machine or Machine(rom)
+        self.m = machine or Machine(args.rom)
+        self.m.TICK = max(1, BASE_HZ // max(1, getattr(args, 'tick_hz', 500)))   # steps between timer ticks
         if not hasattr(self.m, 'adc'):
             self.adc = attach_analog(self.m)
         self.term = Terminal()
@@ -374,6 +374,10 @@ class App:
         line(' Aux link log', curses.A_BOLD)
         for l in self.log[-7:]: line('  ' + l[:max(20, width - 3)])
         line(' Break at: ' + (' '.join('%04X' % b for b in sorted(self.breaks)) or '-'))
+        w = getattr(self.args, 'watch', None)
+        if w is not None:
+            bs = [r[(w + i) & 0xFFFF] for i in range(8)]
+            line(' Watch %04X: %s  "%s"' % (w, ' '.join('%02X' % b for b in bs), ''.join(chr(b) if 32 <= b < 127 else '.' for b in bs)))
 
     def draw_debugger(self):
         c, d, m = self.m.cpu, self.dbg, self.m
@@ -384,7 +388,6 @@ class App:
                  % (c.a, c.b, c.c, c.d, c.e, c.h, c.l, c.sp, c.pc, flags, int(c.ie)))
         self.put(4, 1, 'Code', curses.A_BOLD)
         a = c.pc
-        #a = (d['mem']) & 0xFFFF  # for memory disassembly
         for i in range(10):
             n, t = disasm(rd, a)
             mark = '>' if i == 0 else (('*' if a in self.breaks else ' '))
@@ -392,7 +395,7 @@ class App:
         self.put(4, 50, 'Stack', curses.A_BOLD)
         for i in range(6):
             sp = (c.sp + 2 * i) & 0xFFFF
-            self.put(5 + i, 50, '%04X: %04X ' % (sp, rd(sp) | rd(sp + 1) << 8))
+            self.put(5 + i, 50, '%04X: %04X' % (sp, rd(sp) | rd(sp + 1) << 8))
         self.put(16, 1, 'Memory %04X' % d['mem'], curses.A_BOLD)
         for i in range(6):
             base = (d['mem'] + 16 * i) & 0xFFFF
@@ -421,8 +424,9 @@ class FakeScreen:
     def text(self): return '\n'.join(''.join(r).rstrip() for r in self.g)
 
 
-def selftest():
-    args = argparse.Namespace(ascii=False, fixed=150000)
+def selftest(rom):
+    args = argparse.Namespace(ascii=False, fixed=150000, watch=0x7ff0)
+    args.rom=rom
     scr = FakeScreen(); app = App(scr, args)
     def frames(n=6):
         for _ in range(n): app.frame()
@@ -460,16 +464,40 @@ def selftest():
     print('7 debugger step/continue (RET, no reboot) ... ok')
     press(PREFIX + 'p'); frames(1); assert app.paused
     press(PREFIX + 'h'); frames(1); assert 'Ctrl-]  then' in scr.text(); print('8 pause / help ......... ok')
+    # Fibonacci example process: load with L, start with P, watch 7100h, ESC returns to the menu
+    here = os.path.dirname(os.path.abspath(__file__))
+    app.paused = False; app.show_help = False
+    press(PREFIX + 'x'); frames(1)                      # stop the PLC program from test 3 before overwriting 8000h
+    assert app.m.bus.ram[0x4C02] == 2
+    press(PREFIX + 'L' + os.path.join(here, 'examples', 'fib.hex') + '\r'); frames(1)
+    assert app.m.bus.ram[0x807C] == 0x21, 'fib.hex not downloaded'
+    press('P\r'); frames(4); press('3\r'); frames(4); press('807C\r'); frames(6)
+    vals = []
+    for _ in range(40):
+        frames(1); t = bytes(app.m.bus.ram[0x7ff0:0x7ff4]).decode('latin1')
+        if all(c in '0123456789ABCDEF' for c in t) and (not vals or vals[-1] != t): vals.append(t)
+    assert vals, 'the process wrote nothing at 7FF0h'
+    fib = [0, 1]
+    while fib[-1] + fib[-2] < 65536: fib.append(fib[-1] + fib[-2])
+    ok = all(int(v, 16) in fib for v in vals) and int(vals[-1], 16) >= 8
+    assert ok, 'fibonacci values wrong: %s' % vals
+    assert 'Watch 7FF0: ' in scr.text() and '"%s.' % vals[-1] in scr.text(), 'panel watch line missing'
+    press('\x1b'); frames(8)
+    assert 'KOMMANDO' in scr.text(), 'ESC did not return to the menu while the process runs'
+    print('9 Fibonacci process via L + P ... ok  (7FF0h shows: %s)' % ' '.join(vals))
     print('\n--- screen dump ---'); app.show_help = False; app.paused = False; app.frame(); print(scr.text()[:2600])
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
+    ap.add_argument('--rom', type=str, default='../../src/roms/sps_and_funk.bin', help='rom image')
     ap.add_argument('--ascii', action='store_true', help='show raw ROM characters instead of Danish letters')
+    ap.add_argument('--tick-hz', type=int, default=500, help='timer ticks per second at speed x1 (default 500: the OS clock then counts real seconds)')
+    ap.add_argument('--watch', type=lambda t: int(t, 16), default=None, metavar='ADDR', help='hex address whose 8 bytes are shown in the panel')
     ap.add_argument('--fixed', type=int, default=0, help='run this many steps per frame (testing)')
     ap.add_argument('--selftest', action='store_true')
     args = ap.parse_args()
-    if args.selftest: return selftest()
+    if args.selftest: return selftest(args.rom)
     locale.setlocale(locale.LC_ALL, '')
 
     def run(scr):

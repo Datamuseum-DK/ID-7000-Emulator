@@ -1,7 +1,8 @@
 """Program the PLC runtime over the aux link, then drive digital and analog I/O."""
 from machine import Machine, attach_analog
 from aux import AuxHost
-m=Machine(); adc=attach_analog(m)
+
+m=Machine('../../src/roms/sps_and_funk.bin'); adc=attach_analog(m)
 for i,a in enumerate(adc): a.values=[(i*8+c)*13+5 for c in range(8)]
 m.run(2_000_000); m.take()
 h=AuxHost(m)
