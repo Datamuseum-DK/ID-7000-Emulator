@@ -1,4 +1,4 @@
-========================================
+
 Peripheral Initialisation: 8251 and 8255
 ========================================
 
@@ -19,7 +19,7 @@ Peripheral Initialisation: 8251 and 8255
    *inferred*; no schematic was available.
 
 Overview
-========
+--------
 
 The firmware drives three kinds of peripheral chip:
 
@@ -45,7 +45,7 @@ The 8251 C/D pin is probably wired to address bit A0, so the odd port is
 always the control/status register.
 
 Where the code is
------------------
+^^^^^^^^^^^^^^^^^
 
 .. list-table::
    :header-rows: 1
@@ -72,10 +72,10 @@ Where the code is
      - Printer byte output using the 8255.
 
 8251 initialisation
-===================
+-------------------
 
 Common first step: ``03h`` then ``53h``
----------------------------------------
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 An 8251 accepts control-port writes in a fixed order (mode byte, sync
 character(s) if any, then command bytes). After a warm restart the ROM cannot
@@ -96,7 +96,7 @@ wait-for-mode state; the other bits have no lasting effect.
    datasheet recommends three dummy writes for that situation.
 
 Mode and command formats used
------------------------------
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 .. code-block:: text
 
@@ -109,7 +109,7 @@ Mode and command formats used
                 EH  IR  RTS  ER  SBRK  RxE  DTR  TxEN
 
 Async channels 0-11
--------------------
+^^^^^^^^^^^^^^^^^^^
 
 .. list-table::
    :header-rows: 1
@@ -143,7 +143,7 @@ any stale byte (stub at ``0C04h``).
    the chip's TxC/RxC pins, so any speed selection must be in the hardware.
 
 Synchronous Cyber link (``A0h``/``A1h``)
-----------------------------------------
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 The sequence is ``03h``, ``53h``, ``98h``, ``16h``, ``96h``.
 
@@ -174,7 +174,7 @@ The odd parity setting fits the sync character: SYN (``16h``) has three bits
 set, so with odd parity its parity bit is 0 and it goes out as plain ``16h``.
 
 Runtime commands (half duplex)
-------------------------------
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 The line is run half-duplex. The receiver and transmitter are never enabled
 together, and RTS is asserted only while transmitting.
@@ -205,7 +205,7 @@ The routines at ``0050h`` and ``01FDh`` also set bit 2 and bit 4 of the system
 latch (port ``FEh``). What those bits control is not known.
 
 Status bits used
-----------------
+^^^^^^^^^^^^^^^^
 
 .. list-table::
    :header-rows: 1
@@ -222,7 +222,7 @@ Status bits used
        receiver on any error.
 
 8255 initialisation
-===================
+-------------------
 
 The 8255 is set up at ``1012h``-``1020h`` (``OUT`` instructions at ``1014h``-``1020h``). Port ``53h`` is the control
 register, ``50h`` is port A and ``51h`` is port B.
@@ -253,7 +253,7 @@ The mode write already clears the output latches, so the PC4 reset is
 redundant. PC4 ends high; what it connects to is not known.
 
 Printer output (``19E1h``)
---------------------------
+^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 PC7 is the strobe. The routine:
 
@@ -272,13 +272,13 @@ yields again. Its meaning is unclear. The busy path was never executed in the
 emulator, because the stub reports the printer as always ready.
 
 Printer stub (``printer.py``)
-=============================
+-----------------------------
 
 ``printer.py`` models the 8255 and a Centronics-style printer behind it. It was
 written from the behaviour described above and tested against the ROM.
 
 Wiring modelled
----------------
+^^^^^^^^^^^^^^^
 
 .. list-table::
    :header-rows: 1
@@ -309,7 +309,7 @@ word ``82h`` and PC7 and PC4 both high, which matches the decoding in the
 8255 section above. Any mode word other than ``82h`` is logged.
 
 Using it
---------
+^^^^^^^^
 
 .. code-block:: python
 
@@ -331,7 +331,7 @@ The helpers ``tab(n)`` (3-31 spaces), ``zeros(n)`` (3-15 zeros) and
 recognises.
 
 Test results
-------------
+^^^^^^^^^^^^
 
 ``demo_printer.py`` checks the following byte for byte against the ROM:
 
@@ -360,7 +360,7 @@ The handshake tests give these results:
   after hold is cleared too.
 
 Limits
-------
+^^^^^^
 
 * The PB3 and PB5 meanings come from the code's behaviour, not from a
   schematic.
@@ -369,7 +369,7 @@ Limits
 * ``print_via_host`` lives in ``printer.py``, not in ``CyberHost``.
 
 Emulator status
-===============
+---------------
 
 * ``sync.py`` models the 8251 mode / sync-character / command sequence and
   the TxRDY/RxRDY status bits for the sync chip.
@@ -382,7 +382,7 @@ Emulator status
   the ports return 0 and writes are ignored.
 
 Open questions
-==============
+--------------
 
 * What clock sets the baud rate, and whether it is selectable.
 * What bits 2 and 4 of the system latch (``FEh``) control.
