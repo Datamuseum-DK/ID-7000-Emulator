@@ -2,9 +2,13 @@
 'A' Emulator Scripts
 ====================
 
+.. include:: ../claude_warning.rst
+
 .. contents:: Contents
    :local:
    :depth: 2
+
+.. include:: claude_warning.rst
 
 This guide lists the commands that run the Python emulator for the board 5 image
 (:doc:`board5_terminal_concentrator`) and shows what to expect. The emulator is a
