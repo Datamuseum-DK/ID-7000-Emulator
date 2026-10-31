@@ -1,9 +1,13 @@
 'A' ROM Analysis 
 ================
 
+.. include:: ../claude_warning.rst
+
 .. contents:: Contents
    :local:
    :depth: 2
+
+.. include:: ../claude_warning.rst
 
 .. note::
 

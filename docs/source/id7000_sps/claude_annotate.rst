@@ -2,6 +2,8 @@
 Annotated disassembly
 =====================
 
+.. include:: ../claude_warning.rst
+
 .. code-block:: text
   
         ; ===========================================================================

@@ -2,9 +2,13 @@
 SPS/FUNK Emulator Scripts
 =========================
 
+.. include:: ../claude_warning.rst
+
 .. contents:: Contents
    :local:
    :depth: 2
+
+.. include:: ../claude_warning.rst
 
 This guide lists the commands that run the Python emulator for the IPC/1 + SPC/1
 image (:doc:`sps_funk_ipc1`) and shows what to expect. The emulator is a folder of

@@ -493,3 +493,15 @@ Fibonacci
 
 Iv'e also added a 16 bit Fibonacci counter program **examples/fib.hex**. The load and execute
 commands are the same as above.
+
+Some time wasted not understanding why the AUX data didn't load at address 8000H, but 
+that was a 'shortcut' made in the emulator. Now raw data can be loaded at address 8000H.
+This should really be the default behaviour.
+
+
+2026 11 01
+----------
+
+**Documentation**
+
+Using includes to declarate Claude usage.

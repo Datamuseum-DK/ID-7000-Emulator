@@ -1,9 +1,13 @@
 IPC/1 + SPC/1 Analysis
 ======================
 
+.. include:: ../claude_warning.rst
+
 .. contents:: Contents
    :local:
    :depth: 2
+
+.. include:: ../claude_warning.rst
 
 .. note::
 
