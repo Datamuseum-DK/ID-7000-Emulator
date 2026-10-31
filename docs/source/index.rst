@@ -34,8 +34,8 @@ from ROMs.
 
     id7000_a/claude_reveng
     id7000_a/claude_peripheral_init
-    id7000_a/claude_id7000_rom
     id7000_a/claude_emulator
+    id7000_a/claude_annotate
 
 .. toctree::
     :maxdepth: 3
@@ -47,16 +47,12 @@ from ROMs.
     :maxdepth: 3
     :caption: ID7000 SPS - Claude
 
-    id7000_sps/claude_sps_funk
+    id7000_sps/claude_reveng
+    id7000_sps/claude_emulator
     id7000_sps/annotate
-
 
 .. toctree::
     :maxdepth: 3
-    :caption: DocTest
+    :caption: ROM Comparisons
 
-    claude/board5_terminal_concentrator
-    claude/board5_usage
-    claude/sps_funk_ipc1
-    claude/sps_funk_usage
     claude/comparison

@@ -115,7 +115,12 @@ def assemble(text, defines=None):
                         else: b.append(ev(o) & 255)
                     data = bytes(b)
                 elif op == 'DW': data = b''.join((ev(o) & 0xFFFF).to_bytes(2, 'little') for o in ops)
-                elif op == 'DS': data = bytes(ev(ops[0]) if pas == 2 else 0)
+                elif op == 'DS':
+                    try: n = evaluate(ops[0], syms, pc)
+                    except AsmError:
+                        if pas == 2: raise
+                        n = 0
+                    data = bytes(max(0, n))
                 elif op in NOARG: data = bytes([NOARG[op]])
                 elif op == 'MOV': data = bytes([0x40 | REG[ops[0].upper()] << 3 | REG[ops[1].upper()]])
                 elif op == 'MVI': data = bytes([0x06 | REG[ops[0].upper()] << 3, ev(ops[1]) & 255])

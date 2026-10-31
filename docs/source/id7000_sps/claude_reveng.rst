@@ -1,6 +1,5 @@
-SPS and FUNK ROM Analysis
-=========================
-
+ID-7000 IPC/1 + SPC/1 Firmware (SPS_1-5 and FUNK_1-3)
+=====================================================
 
 .. contents:: Contents
    :local:
@@ -419,7 +418,9 @@ Two different things can be loaded and they follow different rules:
 * The PLC program that the cycle process calls is always downloaded to ``8000h``
   and always entered at ``807Ch``. It is not a process: while the state is 3 the
   PLC cycle calls it as a subroutine once per scan. Only one such program exists
-  at a time.
+  at a time. The ROM itself simply writes the data stream it receives from
+  ``8000h`` upwards. The front end and the demo scripts put 7Ch header bytes (the
+  program name, then zeros) in front of the code so that it starts at ``807Ch``.
 
 Several processes
 ^^^^^^^^^^^^^^^^^

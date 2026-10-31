@@ -27,9 +27,14 @@ UPTIME        EQU 4000H        ; word, +1 every 2 timer ticks (kernel)
 SEM_TICK5     EQU 4047H        ; semaphore signalled every 5th timer tick
 API_SEM_WAIT  EQU 00B8H        ; OS API: wait on semaphore (BC = address)
 API_SEM_SIGNAL EQU 00B2H       ; OS API: signal semaphore  (BC = address)
-OUT_ADDR      EQU 7FF0H        ; result: 4 hex digits + 00H
+OUT_ADDR      EQU 7100H        ; result: 4 hex digits + 00H
 TICKS_PER_SEC EQU 500          ; timer ticks per second (assumption, see above)
 HALF_TICKS    EQU TICKS_PER_SEC/2
+
+
+              ORG 8000H
+              DB "FIB-FROM-FILE",0        ; program name, returned by command 60H
+              DS 807CH-$                  ; rest of the header
 
               ORG 807CH
 

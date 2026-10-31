@@ -4,7 +4,7 @@
     python3 interactive.py            run with the panel and the built-in debugger
     python3 interactive.py --ascii    show the Danish letters as [ \\ ] { | } (raw ROM text)
     python3 interactive.py --tick-hz 100   timer ticks per second at speed x1 (default 500)
-    python3 interactive.py --watch 7FF0    show 8 bytes at this (hex) address in the panel
+    python3 interactive.py --watch 7100    show 8 bytes at this (hex) address in the panel
     python3 interactive.py --selftest scripted test without a terminal
 
 Keys
@@ -12,8 +12,10 @@ Keys
   Ctrl-]            emulator prefix, then one of:
       q quit         p pause/resume      h help          s change speed
       i toggle a digital input point     a set an analog value
-      l load demo program (aux link)     L load a hex file     r run     x stop
+      l load demo program (aux link)     L load a hex file (@file = raw image from 8000h)
+      N set the program name stored at 8000h by l and L     r run     x stop
       c send a raw aux command           v show version string
+      R restart the system (stops every process)
       b break into the debugger          d show/hide the info panel
       n switch Danish/raw characters
 
@@ -42,7 +44,8 @@ HELP = """\
    q quit            p pause           s speed            h this help
    i toggle input    a analog value    d panel on/off     n Danish/raw text
    l demo program    L hex file        r run              x stop
-   c raw aux command v version         b debugger
+   c raw aux command v version         b debugger        R restart (stops all)
+   N program name (stored at 8000h by l/L; L @file sends a raw image)
  Menu in the ROM:  C (stub)   D debugger   P start process   Esc = back to menu
  Debugger: s step  c continue(RET)  g go  m addr dump  b addr breakpoint  q resume
  Digital inputs are active low: the panel shows '#' for an active point."""
@@ -73,6 +76,7 @@ class App:
         self.status = 'Ctrl-] h = help'
         self.log = []
         self.quit = False
+        self.prog_name = ''
         self.dbg = None
         self.breaks = set()
         self.watch = {0xF000, 0xF008}
@@ -201,13 +205,27 @@ class App:
         if not getattr(self, '_connected', False):
             self.host.connect(); self._connected = True
 
-    def download(self, code):
+    def header(self):
+        """The 7Ch-byte program header: the program name (zero terminated, at most 39 characters) then zeros."""
+        name = self.prog_name.encode('latin1', 'replace')[:39] + b'\0'
+        return name + bytes(0x7C - len(name))
+
+    def download(self, code, raw=False):
+        """Send code to the PLC download area. Normally a header carrying the program name is put in front, so that
+        the first code byte lands at 807Ch, the fixed program entry. raw=True sends the bytes exactly as given,
+        starting at 8000h (the file must then contain the header itself)."""
         self.connect()
-        image = bytes(0x7C) + code
+        image = code if raw else self.header() + code
         blocks = [image[i:i + 32] for i in range(0, len(image), 32)]
         for n, b in enumerate(blocks):
-            self.aux(0x1E, n, 0 if n == len(blocks) - 1 else 1, *b)
-        self.status = 'downloaded %d bytes, PLC state %s' % (len(code), PLC_STATE.get(self.m.bus.ram[0x4C02], '?'))
+            reply = self.aux(0x1E, n, 0 if n == len(blocks) - 1 else 1, *b)
+            data = next((d for c, d in (reply or []) if c == 0x1E), b'')
+            if len(data) >= 3 and data[2] != 0:
+                why = {1: 'the PLC program is running - stop it first (Ctrl-] x)', 2: 'block out of sequence'}.get(data[2], 'status %d' % data[2])
+                self.status = 'download refused: ' + why
+                return False
+        self.status = 'downloaded %d bytes to 8000h-%04X, PLC state %s' % (len(image), 0x8000 + len(image) - 1, PLC_STATE.get(self.m.bus.ram[0x4C02], '?'))
+        return True
 
     # ------------------------------------------------------------- prompts and prefix keys
     def ask(self, label, cb):
@@ -229,10 +247,12 @@ class App:
         elif k == 'r': self.connect(); self.aux(0x20, 1); self.status = 'PLC state %s' % PLC_STATE.get(m.bus.ram[0x4C02], '?')
         elif k == 'x': self.connect(); self.aux(0x20, 0); self.status = 'PLC state %s' % PLC_STATE.get(m.bus.ram[0x4C02], '?')
         elif k == 'v': self.connect(); self.aux(0x60)
+        elif k == 'R': self.restart()
         elif k == 'i': self.ask('toggle input point (0-159): ', self._toggle_input)
         elif k == 'a': self.ask('analog  module channel value  (e.g. 0 3 512): ', self._set_analog)
         elif k == 'c': self.ask('aux command: code [args], hex: ', self._raw_aux)
-        elif k == 'L': self.ask('hex file with program code: ', self._load_file)
+        elif k == 'L': self.ask('hex file (prefix @ = raw image from 8000h): ', self._load_file)
+        elif k == 'N': self.ask('program name for downloads (max 39 chars): ', self._set_name)
         else: self.status = 'unknown emulator key'
 
     def prompt_key(self, k):
@@ -257,14 +277,24 @@ class App:
         self.m.adc[mod].values[ch] = val & 0x3FF
         self.status = 'analog module %d channel %d = %d' % (mod, ch, val & 0x3FF)
 
+    def restart(self):
+        """Restart the system with aux command 3Ah. This is the only way to stop operator-started processes."""
+        self.connect(); self.aux(0x3A); self._connected = False
+        self.status = 'restart sent: all processes stopped, the system boots again'
+
     def _raw_aux(self, t):
         parts = [int(x, 16) for x in t.split()]
         self.connect(); self.aux(parts[0], *parts[1:])
+        if parts[0] == 0x3A or parts[:2] == [0x20, 2]: self._connected = False     # the link restarts with the system
+
+    def _set_name(self, t):
+        self.prog_name = t.strip()[:39]
+        self.status = 'program name: %r' % self.prog_name
 
     def _load_file(self, path):
-        text = open(os.path.expanduser(path)).read()
-        code = bytes.fromhex(''.join(text.split()))
-        self.download(code)
+        path = path.strip(); raw = path.startswith('@')
+        text = open(os.path.expanduser(path.lstrip('@'))).read()
+        self.download(bytes.fromhex(''.join(text.split())), raw=raw)
 
     # ------------------------------------------------------------- keys
     def map_key(self, k):
@@ -281,7 +311,7 @@ class App:
         if self.prefix:
             self.prefix = False; self.status = ''; return self.ctl_key(k)
         if k == PREFIX:
-            self.prefix = True; self.status = 'Ctrl-] : q p h s i a l L r x c v b d n'; return
+            self.prefix = True; self.status = 'Ctrl-] : q p h s i a l L N r x c v b d n R'; return
         b = self.map_key(k)
         if b is not None:
             self.m.con.rx.append(b)
@@ -359,6 +389,8 @@ class App:
         state = PLC_STATE.get(r[0x4C02], str(r[0x4C02]))
         entry = r[0x4BD5] | r[0x4BD6] << 8
         line(' PLC %-7s entry %04X  aux frames %d' % (state, entry, self.aux_frames))
+        nm = bytes(r[0x8000:0x8028]).split(b'\0')[0]
+        line(' Program name: %s' % (nm.decode('latin1') if nm and all(32 <= c < 127 for c in nm) else '-'))
         line('')
         line(' Digital inputs  (ports 20-33, active low)', curses.A_BOLD)
         act = [p for p in range(160) if not (m.bus.inputs[0x20 + p // 8] >> (p % 8)) & 1]
@@ -371,13 +403,14 @@ class App:
         line('  on:     %s' % (', '.join(map(str, on[:14])) + (' ...' if len(on) > 14 else '') if on else 'none'))
         line(' Analog (module: ch0..ch7)', curses.A_BOLD)
         for i, a in enumerate(m.adc): line('  %d: %s' % (i, ' '.join('%4d' % v for v in a.values)))
-        line(' Aux link log', curses.A_BOLD)
-        for l in self.log[-7:]: line('  ' + l[:max(20, width - 3)])
         line(' Break at: ' + (' '.join('%04X' % b for b in sorted(self.breaks)) or '-'))
         w = getattr(self.args, 'watch', None)
         if w is not None:
             bs = [r[(w + i) & 0xFFFF] for i in range(8)]
             line(' Watch %04X: %s  "%s"' % (w, ' '.join('%02X' % b for b in bs), ''.join(chr(b) if 32 <= b < 127 else '.' for b in bs)))
+        room = self.scr.getmaxyx()[0] - 2 - y - 1                    # rows left above the status line
+        line(' Aux link log', curses.A_BOLD)
+        for l in self.log[-max(0, min(7, room)):]: line('  ' + l[:max(20, width - 3)])
 
     def draw_debugger(self):
         c, d, m = self.m.cpu, self.dbg, self.m
@@ -425,7 +458,7 @@ class FakeScreen:
 
 
 def selftest(rom):
-    args = argparse.Namespace(ascii=False, fixed=150000, watch=0x7ff0)
+    args = argparse.Namespace(ascii=False, fixed=150000, watch=0x7100)
     args.rom=rom
     scr = FakeScreen(); app = App(scr, args)
     def frames(n=6):
@@ -467,24 +500,38 @@ def selftest(rom):
     # Fibonacci example process: load with L, start with P, watch 7100h, ESC returns to the menu
     here = os.path.dirname(os.path.abspath(__file__))
     app.paused = False; app.show_help = False
-    press(PREFIX + 'x'); frames(1)                      # stop the PLC program from test 3 before overwriting 8000h
+    press(PREFIX + 'l'); frames(1)                      # the PLC program from test 3 is still running
+    assert 'download refused' in app.status and 'running' in app.status, 'download while running was not refused: %s' % app.status
+    press(PREFIX + 'x'); frames(1)                      # stop it
     assert app.m.bus.ram[0x4C02] == 2
-    press(PREFIX + 'L' + os.path.join(here, 'examples', 'fib.hex') + '\r'); frames(1)
+    press(PREFIX + 'N' + 'FIBONACCI\r'); frames(1)
+    press(PREFIX + 'L' + os.path.join(here, 'examples', 'fib_noname.hex') + '\r'); frames(1)
     assert app.m.bus.ram[0x807C] == 0x21, 'fib.hex not downloaded'
+    assert bytes(app.m.bus.ram[0x8000:0x800A]) == b'FIBONACCI\0', 'program name not at 8000h'
+    press(PREFIX + 'v'); frames(1); assert 'FIBONACCI' in scr.text(), 'name missing in the version reply / panel'
+    press(PREFIX + 'L' + '@' + os.path.join(here, 'examples', 'fib.hex') + '\r'); frames(1)     # raw image with its own header
+    assert bytes(app.m.bus.ram[0x8000:0x800E]) == b'FIB-FROM-FILE\0' and app.m.bus.ram[0x807C] == 0x21, 'raw image not placed at 8000h'
     press('P\r'); frames(4); press('3\r'); frames(4); press('807C\r'); frames(6)
     vals = []
     for _ in range(40):
-        frames(1); t = bytes(app.m.bus.ram[0x7ff0:0x7ff4]).decode('latin1')
+        frames(1); t = bytes(app.m.bus.ram[0x7100:0x7104]).decode('latin1')
         if all(c in '0123456789ABCDEF' for c in t) and (not vals or vals[-1] != t): vals.append(t)
-    assert vals, 'the process wrote nothing at 7FF0h'
+    assert vals, 'the process wrote nothing at 7100h'
     fib = [0, 1]
     while fib[-1] + fib[-2] < 65536: fib.append(fib[-1] + fib[-2])
     ok = all(int(v, 16) in fib for v in vals) and int(vals[-1], 16) >= 8
     assert ok, 'fibonacci values wrong: %s' % vals
-    assert 'Watch 7FF0: ' in scr.text() and '"%s.' % vals[-1] in scr.text(), 'panel watch line missing'
+    assert 'Watch 7100: ' in scr.text() and '"%s.' % vals[-1] in scr.text(), 'panel watch line missing'
     press('\x1b'); frames(8)
     assert 'KOMMANDO' in scr.text(), 'ESC did not return to the menu while the process runs'
-    print('9 Fibonacci process via L + P ... ok  (7FF0h shows: %s)' % ' '.join(vals))
+    assert app.m.bus.ram[0x4846] == 1
+    print('9 Fibonacci process via L + P ... ok  (7100h shows: %s)' % ' '.join(vals))
+    press(PREFIX + 'R'); frames(12)                     # restart: the only way to stop the process
+    r = app.m.bus.ram; v1 = bytes(r[0x7100:0x7104]); frames(6); v2 = bytes(r[0x7100:0x7104])
+    assert r[0x4846] == 0 and v1 == v2, 'restart did not stop the process'
+    assert 'VELKOMMEN' in scr.text(), 'system did not boot again'
+    press(PREFIX + 'v'); frames(1); assert 'aux link needs' not in app.status
+    print('10 restart (Ctrl-] R) stops the process and boots again ... ok')
     print('\n--- screen dump ---'); app.show_help = False; app.paused = False; app.frame(); print(scr.text()[:2600])
 
 

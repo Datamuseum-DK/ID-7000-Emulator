@@ -1,14 +1,17 @@
 ; 32-bit increment routine for Intel 8080
 ; COUNTER points to 4 bytes in RAM (LSB to MSB)
 
-COUNT0  EQU 7FF0H
-COUNT2  EQU 7FF2H
+        ORG 8000H
+        DB "CTR-FROM-FILE",0        ; program name, returned by command 60H
+        DS 807CH-$                  ; rest of the header
 
-        ORG 807CH
 ; =====================================================================
 ; 32-Bit Counter Increment for Intel 8080
 ; Modifies: A, H, L, Flags
 ; =====================================================================
+COUNT0  EQU 7FF0H
+COUNT2  EQU 7FF2H
+
 
 LOOP:   LXI B,4047h         ; (SEM_TICK5)
         CALL 00B8h          ; (sem_wait)

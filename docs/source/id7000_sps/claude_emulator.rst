@@ -1,5 +1,5 @@
-SPS/FUNK Emulator Scripts
-=========================
+IPC/1 + SPC/1 Image: Running the Emulator Scripts
+=================================================
 
 .. contents:: Contents
    :local:
@@ -188,7 +188,12 @@ emulator's own keys:
    * - ``l``
      - Download the demo program (output 0 follows input 0)
    * - ``L``
-     - Download the code in a hex file (prompts for the path)
+     - Download the code in a hex file (prompts for the path). The front end puts
+       the 7Ch-byte header, carrying the name set with ``N``, in front of the code.
+       A path that starts with ``@`` is sent as a raw image from ``8000h``, header
+       included
+   * - ``N``
+     - Set the program name that ``l`` and ``L`` store at ``8000h`` (up to 39 characters)
    * - ``r`` ``x``
      - Run or stop the PLC program
    * - ``v`` ``c``
@@ -262,6 +267,53 @@ The front end intercepts that address (and ``F000h``) with a small monitor:
    debugger would do, so the ROM clears the screen and redraws the menu), ``g``
    go without the ``RET``, ``m`` dump memory (prompts for a hex address), ``b``
    toggle a breakpoint (prompts for a hex address), ``x`` quit the emulator.
+
+Naming a program and loading a raw image
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The ROM writes the downloaded data from ``8000h`` onwards. The program entry is
+always ``807Ch``, so the first 7Ch bytes are a header, and the header starts with
+the program name: a zero-terminated string of at most 39 characters, which command
+``60h`` returns after the state byte and the version string. The demo scripts and
+the ``l`` and ``L`` keys put 7Ch zero bytes (or the name and zeros) in front of the
+code, which is why the code appears at ``807Ch``. Three ways to set the name:
+
+1. **Front end, with the name key.** Press ``Ctrl-]`` then ``N``, type the name and
+   Enter, then load with ``l`` or ``L``. The panel shows ``Program name`` and
+   ``Ctrl-]`` ``v`` shows it in the reply.
+2. **Front end, with a raw image.** Write the header in the assembly source and load the
+   file with a ``@`` in front of its name. ``examples/fib_named.asm`` is the Fibonacci
+   process with a header:
+
+   .. code-block:: text
+
+                   ORG 8000H
+                   DB "FIB-FROM-FILE",0        ; program name
+                   DS 807CH-$                  ; rest of the header
+      UPTIME       EQU 4000H
+                   ...                         ; the code, ORG 807CH
+
+   .. code-block:: console
+
+      python3 asm8080.py examples/fib_named.asm --hex examples/fib_named.hex
+
+   Then ``Ctrl-]`` ``L`` and ``@examples/fib_named.hex``.
+3. **Python.** Build the image yourself and send it in 32-byte blocks:
+
+   .. code-block:: python
+
+      from machine import Machine
+      from aux import AuxHost
+      m = Machine(); m.run(2_000_000); h = AuxHost(m); h.connect()
+      code = open('examples/fib.bin', 'rb').read()
+      name = b'FIBONACCI\0'
+      image = name + bytes(0x7C - len(name)) + code      # name, zero padding, code at 807Ch
+      blocks = [image[i:i + 32] for i in range(0, len(image), 32)]
+      for n, b in enumerate(blocks):
+          h.command(0x1E, n, 0 if n == len(blocks) - 1 else 1, *b)
+      print(h.command(0x60))     # state byte, version string, then the name
+
+The ROM refuses the download while the PLC program is running, so stop it first.
 
 The assembler
 -------------
