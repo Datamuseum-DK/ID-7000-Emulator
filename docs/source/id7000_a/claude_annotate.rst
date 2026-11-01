@@ -2,7 +2,7 @@
 Annotated disassembly (Claude)
 ==============================
 
-From a Claude session on 2025 10 19
+From a Claude session on 2026 11 01
 
 .. include:: ../claude_warning.rst
 
@@ -34,11 +34,13 @@ From a Claude session on 2025 10 19
         ;   50-53  8255 PPI   (A=data out, B=status in, C=control lines, 53=control)
         ;   60-77  12 x 8251 USART, data on even port, control/status on odd port
         ;   A0/A1  8251 in synchronous mode (SYN=16H): link to the Cyber host
-        ;   FE     system control latch      FF  timer tick acknowledge (read)
+        ;   FE     INT_ENABLE  interrupt module: bit n enables the source of RST n (read/write)
+        ;   FF     TIMER_ACK   timer module: a read acknowledges the tick  (FE/FF = interrupt and timer module, supplied information)
         ;
-        ; ----- interrupts ---------------------------------------------------------
-        ;   RST2 sync RX   RST3 timer tick   RST4 sync TX   RST6 async RX
-        ;   (RST1 and RST5 are EI;RET stubs, RST7 restarts the system)
+        ; ----- interrupts (the bit in INT_ENABLE equals the RST number) ----------------
+        ;   RST2 (bit 2) sync RX   RST3 (bit 3) timer tick   RST4 (bit 4) sync TX   RST6 (bit 6) async RX
+        ;   RST1 and RST5 are EI;RET stubs, RST7 restarts the system. Boot writes 7EH = bits 1-6;
+        ;   the sync receive reset and every transmit start OR their own bit in again (04H, 10H).
         ;
         ; ----- equates ----------------------------------------------------------
         PPI_A          EQU  50H
@@ -71,8 +73,8 @@ From a Claude session on 2025 10 19
         UART11_CTL     EQU  77H
         SYNC_DATA      EQU  A0H
         SYNC_CTL       EQU  A1H
-        SYSCTL         EQU  FEH
-        TICK_ACK       EQU  FFH
+        INT_ENABLE     EQU  FEH
+        TIMER_ACK      EQU  FFH
         TIMESLICE      EQU  4000H
         CUR_TASK       EQU  4002H
         INIT_BLOCK     EQU  41F9H
@@ -179,7 +181,7 @@ From a Claude session on 2025 10 19
         ;   RST 7: restarts the system (jumps to boot).
         ;----------------------------------------------------------------------
         rst7:
-        0038   C3 A0 0D   JMP boot
+        0038 * C3 A0 0D   JMP boot
         003B            DB   76H x 5  ; padding (HLT)
 
         ;============================================================================
@@ -194,25 +196,26 @@ From a Claude session on 2025 10 19
         ; sync_rx_reset  (0040H)
         ;   Reset the Cyber link receiver: RX_STATE := FFH (idle); if the 8251
         ;   status shows parity/overrun/framing error (AND 38H) re-enter hunt
-        ;   mode (A1H <- 96H); sets bit 2 of SYSCTL.
+        ;   mode (A1H <- 96H); sets bit 2 of INT_ENABLE (enables the RST 2
+        ;   source).
         ;----------------------------------------------------------------------
         sync_rx_reset:
-        0040   F5         PUSH PSW
-        0041   E5         PUSH H
-        0042   21 F2 A2   LXI H,RX_STATE
-        0045   36 FF      MVI M,FFH
-        0047   DB A1      IN SYNC_CTL
-        0049   E6 38      ANI 38H
-        004B   CA 52 00   JZ L0052
-        004E   3E 96      MVI A,96H
-        0050   D3 A1      OUT SYNC_CTL               ; 8251: command: EH ER RxE DTR (hunt)
+        0040 * F5         PUSH PSW
+        0041 * E5         PUSH H
+        0042 * 21 F2 A2   LXI H,RX_STATE
+        0045 * 36 FF      MVI M,FFH
+        0047 * DB A1      IN SYNC_CTL
+        0049 * E6 38      ANI 38H
+        004B * CA 52 00   JZ L0052
+        004E * 3E 96      MVI A,96H
+        0050 * D3 A1      OUT SYNC_CTL               ; 8251: command: EH ER RxE DTR (hunt)
         L0052:
-        0052   DB FE      IN SYSCTL
-        0054   F6 04      ORI 04H
-        0056   D3 FE      OUT SYSCTL
-        0058   E1         POP H
-        0059   F1         POP PSW
-        005A   C9         RET
+        0052 * DB FE      IN INT_ENABLE              ; read the interrupt enable register
+        0054 * F6 04      ORI 04H                    ; set bit 2: enable the RST 2 source (sync receive)
+        0056 * D3 FE      OUT INT_ENABLE             ; write it back
+        0058 * E1         POP H
+        0059 * F1         POP PSW
+        005A * C9         RET
 
         ;----------------------------------------------------------------------
         ; sync_rx_isr  (005BH)
@@ -251,11 +254,11 @@ From a Claude session on 2025 10 19
         ;   discard partial buffer.
         ;----------------------------------------------------------------------
         sync_rx_error:
-        0087   CD 40 00   CALL sync_rx_reset
-        008A   2A F7 A2   LHLD RX_BUFPTR
-        008D   7D         MOV A,L
-        008E   B4         ORA H
-        008F   CA 94 00   JZ L0094
+        0087 * CD 40 00   CALL sync_rx_reset
+        008A * 2A F7 A2   LHLD RX_BUFPTR
+        008D * 7D         MOV A,L
+        008E * B4         ORA H
+        008F * CA 94 00   JZ L0094
         0092   36 FF      MVI M,FFH
         L0094:
         0094 * C1         POP B
@@ -364,8 +367,8 @@ From a Claude session on 2025 10 19
         0115 * CA 22 01   JZ L0122
         0118 * FE 60      CPI 60H
         011A * CA 22 01   JZ L0122
-        011D   FE 70      CPI 70H
-        011F   C2 87 00   JNZ sync_rx_error
+        011D * FE 70      CPI 70H
+        011F * C2 87 00   JNZ sync_rx_error
         L0122:
         0122 * 34         INR M
         0123 * C3 06 01   JMP L0106
@@ -523,7 +526,7 @@ From a Claude session on 2025 10 19
         ;----------------------------------------------------------------------
         ; sync_tx_start  (01D6H)
         ;   Start a transmit on the Cyber link: arm TX_STATE (11 leading SYN),
-        ;   A1h <- 33h, set bit in SYSCTL.
+        ;   A1h <- 33h, set bit 4 of INT_ENABLE (enables the RST 4 source).
         ;----------------------------------------------------------------------
         sync_tx_start:
         01D6 * F3         DI
@@ -555,9 +558,9 @@ From a Claude session on 2025 10 19
         01FA * 72         MOV M,D
         01FB * 3E 33      MVI A,33H
         01FD * D3 A1      OUT SYNC_CTL               ; 8251: command: TxEN DTR ER RTS (transmit)
-        01FF * DB FE      IN SYSCTL
-        0201 * F6 10      ORI 10H
-        0203 * D3 FE      OUT SYSCTL
+        01FF * DB FE      IN INT_ENABLE              ; read the interrupt enable register
+        0201 * F6 10      ORI 10H                    ; set bit 4: enable the RST 4 source (sync transmit)
+        0203 * D3 FE      OUT INT_ENABLE             ; write it back
         0205 * C1         POP B
         0206 * D1         POP D
         0207 * E1         POP H
@@ -683,7 +686,8 @@ From a Claude session on 2025 10 19
         ; 02E0-0620  POLL / DATA SERVICE TASK AND OUTPUT QUEUE
         ;   Woken by the sync receive code via the task switcher.  Turns POLL_ADDR (70H+channel)
         ;   into a channel index, decides whether a queued line or the idle reply is sent, and
-        ;   delivers host data (messages must end in ESC B/ESC "  = console, ESC space/ESC ! = printer).
+        ;   delivers host data. The text must end in ESC + code (03D5h-03F3h): ESC B or ESC " = console of channel
+        ;   addr-70H, ESC space = printer (printer_task), ESC ! = acknowledged only (nothing printed in any test).
         ;============================================================================
 
         ;----------------------------------------------------------------------
@@ -711,15 +715,15 @@ From a Claude session on 2025 10 19
         02FE * C2 92 03   JNZ L0392
         0301 * B6         ORA M
         0302 * CA 92 03   JZ L0392
-        0305   06 00      MVI B,00H
-        0307   E5         PUSH H
-        0308   CD 21 06   CALL chan_state_ptr
-        030B   E1         POP H
-        030C   FE 00      CPI 00H
-        030E   C2 92 03   JNZ L0392
-        0311   7E         MOV A,M
-        0312   1F         RAR
-        0313   DA 4D 03   JC L034D
+        0305 * 06 00      MVI B,00H
+        0307 * E5         PUSH H
+        0308 * CD 21 06   CALL chan_state_ptr
+        030B * E1         POP H
+        030C * FE 00      CPI 00H
+        030E * C2 92 03   JNZ L0392
+        0311 * 7E         MOV A,M
+        0312 * 1F         RAR
+        0313 * DA 4D 03   JC L034D
         0316   46         MOV B,M
         0317   F3         DI
         0318   CD 4B 06   CALL chan_state_get
@@ -746,26 +750,26 @@ From a Claude session on 2025 10 19
         0347   32 0A 40   STA 400AH
         034A   C3 25 05   JMP L0525
         L034D:
-        034D   46         MOV B,M
-        034E   F3         DI
-        034F   78         MOV A,B
-        0350   FE 01      CPI 01H
-        0352   C2 76 03   JNZ L0376
-        0355   DB 51      IN PPI_B
-        0357   E6 10      ANI 10H
-        0359   FB         EI
-        035A   C3 65 03   JMP L0365
+        034D * 46         MOV B,M
+        034E * F3         DI
+        034F * 78         MOV A,B
+        0350 * FE 01      CPI 01H
+        0352 * C2 76 03   JNZ L0376
+        0355 * DB 51      IN PPI_B
+        0357 * E6 10      ANI 10H
+        0359 * FB         EI
+        035A * C3 65 03   JMP L0365
         035D ? 3E 20      MVI A,20H
         035F ? 32 0A 40   STA 400AH
         0362 ? C3 25 05   JMP L0525
         L0365:
-        0365   CD 4B 06   CALL chan_state_get
-        0368   FE 05      CPI 05H
-        036A   C2 F1 04   JNZ L04F1
-        036D   FB         EI
-        036E   3E 21      MVI A,21H
-        0370   32 0A 40   STA 400AH
-        0373   C3 25 05   JMP L0525
+        0365 * CD 4B 06   CALL chan_state_get
+        0368 * FE 05      CPI 05H
+        036A * C2 F1 04   JNZ L04F1
+        036D * FB         EI
+        036E * 3E 21      MVI A,21H
+        0370 * 32 0A 40   STA 400AH
+        0373 * C3 25 05   JMP L0525
         L0376:
         0376   DB 0D      IN 0DH
         0378   E6 0C      ANI 0CH
@@ -825,7 +829,7 @@ From a Claude session on 2025 10 19
         03D2 * 0B         DCX B
         03D3 * 0B         DCX B
         03D4 * 0A         LDAX B
-        03D5 * FE 1B      CPI 1BH
+        03D5 * FE 1B      CPI 1BH                    ; the data must end in ESC + code (the two bytes before ETX)
         03D7 * C2 1B 05   JNZ L051B
         03DA * 03         INX B
         03DB * 13         INX D
@@ -833,17 +837,17 @@ From a Claude session on 2025 10 19
         03DD * 32 FF A2   STA A2FFH
         03E0 * 1B         DCX D
         03E1 * 0A         LDAX B
-        03E2 * FE 20      CPI 20H
+        03E2 * FE 20      CPI 20H                    ; ESC space (20h): to the printer
         03E4 * CA 2D 04   JZ L042D
-        03E7 * FE 21      CPI 21H
+        03E7 * FE 21      CPI 21H                    ; ESC ! (21h): acknowledged only, nothing printed
         03E9 * CA 4B 04   JZ L044B
-        03EC * FE 22      CPI 22H
+        03EC * FE 22      CPI 22H                    ; ESC " (22h): console
         03EE * CA F6 03   JZ L03F6
-        03F1 * FE 42      CPI 42H
+        03F1 * FE 42      CPI 42H                    ; ESC B (42h): console, anything else is dropped
         03F3 * C2 1B 05   JNZ L051B
         L03F6:
         03F6 * 1A         LDAX D
-        03F7 * D6 70      SUI 70H
+        03F7 * D6 70      SUI 70H                    ; channel := address - 70h
         03F9 * 4F         MOV C,A
         03FA * C2 00 04   JNZ L0400
         03FD * 32 FE A2   STA A2FEH
@@ -870,7 +874,7 @@ From a Claude session on 2025 10 19
         0428 * 3E 01      MVI A,01H
         042A * CD C8 07   CALL task_switch
         L042D:
-        042D * 06 01      MVI B,01H
+        042D * 06 01      MVI B,01H                  ; ESC space path: B := 1 (print record)
         042F * C3 34 04   JMP L0434
         0432 ? 06 03      MVI B,03H
         L0434:
@@ -885,7 +889,7 @@ From a Claude session on 2025 10 19
         0445 * 32 FE A2   STA A2FEH
         0448 * C3 28 04   JMP L0428
         L044B:
-        044B * 06 02      MVI B,02H
+        044B * 06 02      MVI B,02H                  ; ESC ! path: B := 2
         044D * C3 52 04   JMP L0452
         0450 ? 06 04      MVI B,04H
         L0452:
@@ -1045,27 +1049,27 @@ From a Claude session on 2025 10 19
         0520   36 FF      MVI M,FFH
         0522   C3 28 04   JMP L0428
         L0525:
-        0525   06 FF      MVI B,FFH
-        0527   CD 71 06   CALL buf_alloc
-        052A   DA 58 05   JC L0558
-        052D   23         INX H
-        052E   5E         MOV E,M
-        052F   23         INX H
-        0530   56         MOV D,M
-        0531   EB         XCHG
-        0532   36 70      MVI M,70H
-        0534   23         INX H
-        0535   0E 00      MVI C,00H
-        0537   CD 80 05   CALL get_chan_flag
-        053A   77         MOV M,A
-        053B   23         INX H
-        053C   36 13      MVI M,13H
-        053E   23         INX H
-        053F   36 1B      MVI M,1BH
-        0541   23         INX H
-        0542   3A 0A 40   LDA 400AH
-        0545   77         MOV M,A
-        0546   23         INX H
+        0525 * 06 FF      MVI B,FFH
+        0527 * CD 71 06   CALL buf_alloc
+        052A * DA 58 05   JC L0558
+        052D * 23         INX H
+        052E * 5E         MOV E,M
+        052F * 23         INX H
+        0530 * 56         MOV D,M
+        0531 * EB         XCHG
+        0532 * 36 70      MVI M,70H
+        0534 * 23         INX H
+        0535 * 0E 00      MVI C,00H
+        0537 * CD 80 05   CALL get_chan_flag
+        053A * 77         MOV M,A
+        053B * 23         INX H
+        053C * 36 13      MVI M,13H
+        053E * 23         INX H
+        053F * 36 1B      MVI M,1BH
+        0541 * 23         INX H
+        0542 * 3A 0A 40   LDA 400AH
+        0545 * 77         MOV M,A
+        0546 * 23         INX H
         L0547:
         0547 * EB         XCHG
         0548 * E5         PUSH H
@@ -1487,14 +1491,15 @@ From a Claude session on 2025 10 19
 
         ;----------------------------------------------------------------------
         ; timer_isr  (0760H)
-        ;   Timer tick ISR (RST 3). Reads TICK_ACK, decrements LINK_TMO (link-
-        ;   lost timeout) and TIMESLICE (forces task switch). On timeout sets
-        ;   LINK_DOWN and broadcasts [CYBER LINK LOST] (msg at 17F7h).
+        ;   Timer tick ISR (RST 3). Reads TIMER_ACK (acknowledges the tick),
+        ;   decrements LINK_TMO (link-lost timeout) and TIMESLICE (forces task
+        ;   switch). On timeout sets LINK_DOWN and broadcasts [CYBER LINK LOST]
+        ;   (msg at 17F7h).
         ;----------------------------------------------------------------------
         timer_isr:
         0760 * E5         PUSH H
         0761 * F5         PUSH PSW
-        0762 * DB FF      IN TICK_ACK                ; acknowledge the tick
+        0762 * DB FF      IN TIMER_ACK               ; acknowledge the timer tick (the value read is not used)
         0764 * 21 9B 42   LXI H,LINK_TMO_LO          ; 16-bit link timeout counter, low byte (counts down each tick)
         0767 * 35         DCR M
         0768 * C2 70 07   JNZ L0770
@@ -1517,50 +1522,50 @@ From a Claude session on 2025 10 19
         0782 * FB         EI
         0783 * C9         RET
         L0784:
-        0784   3A 9D 42   LDA LINK_DOWN              ; link timeout: nothing to do if already down
-        0787   A7         ANA A
-        0788   C2 70 07   JNZ L0770
-        078B   3C         INR A
-        078C   32 9D 42   STA LINK_DOWN              ; LINK_DOWN := 1
-        078F   F1         POP PSW
-        0790   D5         PUSH D
-        0791   C5         PUSH B
-        0792   F5         PUSH PSW
-        0793   0E 00      MVI C,00H
+        0784 * 3A 9D 42   LDA LINK_DOWN              ; link timeout: nothing to do if already down
+        0787 * A7         ANA A
+        0788 * C2 70 07   JNZ L0770
+        078B * 3C         INR A
+        078C * 32 9D 42   STA LINK_DOWN              ; LINK_DOWN := 1
+        078F * F1         POP PSW
+        0790 * D5         PUSH D
+        0791 * C5         PUSH B
+        0792 * F5         PUSH PSW
+        0793 * 0E 00      MVI C,00H
         L0795:
-        0795   21 F7 17   LXI H,MSG_LINK_LOST        ; loop over channels (C): broadcast [CYBER LINK LOST]
-        0798   97         SUB A
-        0799   CD EC 15   CALL build_reply
-        079C   06 00      MVI B,00H
-        079E   CD 21 06   CALL chan_state_ptr
-        07A1   36 00      MVI M,00H
-        07A3   23         INX H
-        07A4   5E         MOV E,M
-        07A5   23         INX H
-        07A6   56         MOV D,M
-        07A7   13         INX D
-        07A8   13         INX D
-        07A9   13         INX D
-        07AA   23         INX H
-        07AB   23         INX H
-        07AC   23         INX H
-        07AD   73         MOV M,E
-        07AE   23         INX H
-        07AF   72         MOV M,D
-        07B0   97         SUB A
-        07B1   21 8B 42   LXI H,CHTAB_428B
-        07B4   CD 30 15   CALL tbl_set
-        07B7   79         MOV A,C
-        07B8   FE 0B      CPI 0BH
-        07BA   CA C1 07   JZ L07C1
-        07BD   0C         INR C
-        07BE   C3 95 07   JMP L0795
+        0795 * 21 F7 17   LXI H,MSG_LINK_LOST        ; loop over channels (C): broadcast [CYBER LINK LOST]
+        0798 * 97         SUB A
+        0799 * CD EC 15   CALL build_reply
+        079C * 06 00      MVI B,00H
+        079E * CD 21 06   CALL chan_state_ptr
+        07A1 * 36 00      MVI M,00H
+        07A3 * 23         INX H
+        07A4 * 5E         MOV E,M
+        07A5 * 23         INX H
+        07A6 * 56         MOV D,M
+        07A7 * 13         INX D
+        07A8 * 13         INX D
+        07A9 * 13         INX D
+        07AA * 23         INX H
+        07AB * 23         INX H
+        07AC * 23         INX H
+        07AD * 73         MOV M,E
+        07AE * 23         INX H
+        07AF * 72         MOV M,D
+        07B0 * 97         SUB A
+        07B1 * 21 8B 42   LXI H,CHTAB_428B
+        07B4 * CD 30 15   CALL tbl_set
+        07B7 * 79         MOV A,C
+        07B8 * FE 0B      CPI 0BH
+        07BA * CA C1 07   JZ L07C1
+        07BD * 0C         INR C
+        07BE * C3 95 07   JMP L0795
         L07C1:
-        07C1   F1         POP PSW
-        07C2   C1         POP B
-        07C3   D1         POP D
-        07C4   F5         PUSH PSW
-        07C5   C3 70 07   JMP L0770
+        07C1 * F1         POP PSW
+        07C2 * C1         POP B
+        07C3 * D1         POP D
+        07C4 * F5         PUSH PSW
+        07C5 * C3 70 07   JMP L0770
 
         ;============================================================================
         ; 07C8-0868  TASK SWITCHER
@@ -1721,9 +1726,9 @@ From a Claude session on 2025 10 19
         0890 * CA B9 08   JZ L08B9
         0893 * FE 01      CPI 01H
         0895 * CA B9 08   JZ L08B9
-        0898 * 21 04 0C   LXI H,0C04H
-        089B * CD 45 0D   CALL indexed_call
-        089E * C3 B3 08   JMP rx_char_handler
+        0898   21 04 0C   LXI H,0C04H
+        089B   CD 45 0D   CALL indexed_call
+        089E   C3 B3 08   JMP rx_char_handler
         L08A1:
         08A1   21 04 0C   LXI H,0C04H
         08A4   CD 45 0D   CALL indexed_call
@@ -1771,12 +1776,12 @@ From a Claude session on 2025 10 19
         08E1 * CA FC 08   JZ rx_end_of_line
         08E4 * FE 13      CPI 13H
         08E6 * C2 2F 09   JNZ L092F
-        08E9   F5         PUSH PSW
-        08EA   E5         PUSH H
-        08EB   21 7B 42   LXI H,CHTAB_427B
-        08EE   CD 29 15   CALL tbl_get
-        08F1   A7         ANA A
-        08F2   CA 25 09   JZ L0925
+        08E9 * F5         PUSH PSW
+        08EA * E5         PUSH H
+        08EB * 21 7B 42   LXI H,CHTAB_427B
+        08EE * CD 29 15   CALL tbl_get
+        08F1 * A7         ANA A
+        08F2 * CA 25 09   JZ L0925
         08F5   E1         POP H
         08F6   F1         POP PSW
         08F7   1B         DCX D
@@ -1795,33 +1800,33 @@ From a Claude session on 2025 10 19
         0901 * CD 29 15   CALL tbl_get
         0904 * A7         ANA A
         0905 * CA 2A 09   JZ L092A
-        0908   E1         POP H
-        0909   F1         POP PSW
-        090A   D5         PUSH D
-        090B   E5         PUSH H
-        090C   C5         PUSH B
-        090D   2B         DCX H
-        090E   2B         DCX H
-        090F   2B         DCX H
-        0910   2B         DCX H
-        0911   56         MOV D,M
-        0912   2B         DCX H
-        0913   5E         MOV E,M
-        0914   13         INX D
-        0915   13         INX D
-        0916   13         INX D
-        0917   1A         LDAX D
-        0918   FE 3A      CPI 3AH
-        091A   CA 47 09   JZ exec_local_cmd
+        0908 * E1         POP H
+        0909 * F1         POP PSW
+        090A * D5         PUSH D
+        090B * E5         PUSH H
+        090C * C5         PUSH B
+        090D * 2B         DCX H
+        090E * 2B         DCX H
+        090F * 2B         DCX H
+        0910 * 2B         DCX H
+        0911 * 56         MOV D,M
+        0912 * 2B         DCX H
+        0913 * 5E         MOV E,M
+        0914 * 13         INX D
+        0915 * 13         INX D
+        0916 * 13         INX D
+        0917 * 1A         LDAX D
+        0918 * FE 3A      CPI 3AH
+        091A * CA 47 09   JZ exec_local_cmd
         091D   C1         POP B
         091E   E1         POP H
         091F   D1         POP D
         0920   3E 0D      MVI A,0DH
         0922   C3 35 0A   JMP queue_to_host
         L0925:
-        0925   E1         POP H
-        0926   F1         POP PSW
-        0927   C3 DB 09   JMP L09DB
+        0925 * E1         POP H
+        0926 * F1         POP PSW
+        0927 * C3 DB 09   JMP L09DB
         L092A:
         092A * E1         POP H
         092B * F1         POP PSW
@@ -1853,13 +1858,13 @@ From a Claude session on 2025 10 19
         ;   dispatch (1537h) and print the reply.
         ;----------------------------------------------------------------------
         exec_local_cmd:
-        0947   D5         PUSH D
-        0948   EB         XCHG
-        0949   23         INX H
-        094A   11 9E 16   LXI D,CMD_TABLE
-        094D   CD 00 15   CALL cmd_match
-        0950   CD 37 15   CALL cmd_dispatch
-        0953   CD EC 15   CALL build_reply
+        0947 * D5         PUSH D
+        0948 * EB         XCHG
+        0949 * 23         INX H
+        094A * 11 9E 16   LXI D,CMD_TABLE
+        094D * CD 00 15   CALL cmd_match
+        0950 * CD 37 15   CALL cmd_dispatch
+        0953 * CD EC 15   CALL build_reply
         L0956:
         0956 * D1         POP D
         0957 * 3E 20      MVI A,20H
@@ -1895,10 +1900,10 @@ From a Claude session on 2025 10 19
         097A * 3A 9D 42   LDA LINK_DOWN
         097D * A7         ANA A
         097E * CA 8B 09   JZ L098B
-        0981   D5         PUSH D
-        0982   21 2A 18   LXI H,MSG_LINK_DOWN
-        0985   CD EC 15   CALL build_reply
-        0988   C3 56 09   JMP L0956
+        0981 * D5         PUSH D
+        0982 * 21 2A 18   LXI H,MSG_LINK_DOWN
+        0985 * CD EC 15   CALL build_reply
+        0988 * C3 56 09   JMP L0956
         L098B:
         098B * 21 8B 42   LXI H,CHTAB_428B
         098E * CD 29 15   CALL tbl_get
@@ -1915,12 +1920,12 @@ From a Claude session on 2025 10 19
         09A4 * 32 BD 42   STA 42BDH
         09A7 * C3 B7 09   JMP L09B7
         L09AA:
-        09AA * 3E 37      MVI A,37H
-        09AC * 32 BC 42   STA 42BCH
-        09AF * 79         MOV A,C
-        09B0 * D6 08      SUI 08H
-        09B2 * C6 30      ADI 30H
-        09B4 * 32 BD 42   STA 42BDH
+        09AA   3E 37      MVI A,37H
+        09AC   32 BC 42   STA 42BCH
+        09AF   79         MOV A,C
+        09B0   D6 08      SUI 08H
+        09B2   C6 30      ADI 30H
+        09B4   32 BD 42   STA 42BDH
         L09B7:
         09B7 * 21 9E 42   LXI H,429EH
         09BA * CD EC 15   CALL build_reply
@@ -1965,25 +1970,25 @@ From a Claude session on 2025 10 19
         L09F9:
         09F9 * FE 08      CPI 08H
         09FB * C2 35 0A   JNZ queue_to_host
-        09FE   1B         DCX D
-        09FF   E5         PUSH H
-        0A00   D5         PUSH D
-        0A01   2B         DCX H
-        0A02   2B         DCX H
-        0A03   2B         DCX H
-        0A04   2B         DCX H
-        0A05   56         MOV D,M
-        0A06   2B         DCX H
-        0A07   5E         MOV E,M
-        0A08   13         INX D
-        0A09   13         INX D
-        0A0A   E1         POP H
-        0A0B   E5         PUSH H
-        0A0C   7B         MOV A,E
-        0A0D   95         SUB L
-        0A0E   7A         MOV A,D
-        0A0F   9C         SBB H
-        0A10   DA 20 0A   JC L0A20
+        09FE * 1B         DCX D
+        09FF * E5         PUSH H
+        0A00 * D5         PUSH D
+        0A01 * 2B         DCX H
+        0A02 * 2B         DCX H
+        0A03 * 2B         DCX H
+        0A04 * 2B         DCX H
+        0A05 * 56         MOV D,M
+        0A06 * 2B         DCX H
+        0A07 * 5E         MOV E,M
+        0A08 * 13         INX D
+        0A09 * 13         INX D
+        0A0A * E1         POP H
+        0A0B * E5         PUSH H
+        0A0C * 7B         MOV A,E
+        0A0D * 95         SUB L
+        0A0E * 7A         MOV A,D
+        0A0F * 9C         SBB H
+        0A10 * DA 20 0A   JC L0A20
         0A13   D1         POP D
         0A14   E1         POP H
         L0A15:
@@ -1992,17 +1997,17 @@ From a Claude session on 2025 10 19
         0A1A   CD 45 0D   CALL indexed_call
         0A1D   C3 B3 08   JMP rx_char_handler
         L0A20:
-        0A20   D1         POP D
-        0A21   E1         POP H
-        0A22   1B         DCX D
-        0A23   1A         LDAX D
-        0A24   FE 1B      CPI 1BH
-        0A26   13         INX D
-        0A27   CA 15 0A   JZ L0A15
-        0A2A   72         MOV M,D
-        0A2B   2B         DCX H
-        0A2C   73         MOV M,E
-        0A2D   C3 B3 08   JMP rx_char_handler
+        0A20 * D1         POP D
+        0A21 * E1         POP H
+        0A22 * 1B         DCX D
+        0A23 * 1A         LDAX D
+        0A24 * FE 1B      CPI 1BH
+        0A26 * 13         INX D
+        0A27 * CA 15 0A   JZ L0A15
+        0A2A * 72         MOV M,D
+        0A2B * 2B         DCX H
+        0A2C * 73         MOV M,E
+        0A2D * C3 B3 08   JMP rx_char_handler
         L0A30:
         0A30   3E 1B      MVI A,1BH
         0A32   12         STAX D
@@ -2139,10 +2144,10 @@ From a Claude session on 2025 10 19
         0AE2 * CD 5B 0D   CALL get_chtab_423b
         0AE5 * A7         ANA A
         0AE6 * CA 2D 0B   JZ L0B2D
-        0AE9 ? F1         POP PSW
-        0AEA ? F5         PUSH PSW
-        0AEB ? FE 7E      CPI 7EH
-        0AED ? C2 17 0B   JNZ L0B17
+        0AE9 * F1         POP PSW
+        0AEA * F5         PUSH PSW
+        0AEB * FE 7E      CPI 7EH
+        0AED * C2 17 0B   JNZ L0B17
         0AF0 ? CD 65 0D   CALL get_chtab_424b
         0AF3 ? FE 00      CPI 00H
         0AF5 ? CA 02 0B   JZ L0B02
@@ -2161,9 +2166,10 @@ From a Claude session on 2025 10 19
         0B0F ? C2 FD 0A   JNZ L0AFD
         0B12 ? 36 00      MVI M,00H
         0B14 ? C3 FD 0A   JMP L0AFD
-        0B17 ? CD 51 0D   CALL get_chtab_422b
-        0B1A ? A7         ANA A
-        0B1B ? CA 2D 0B   JZ L0B2D
+        L0B17:
+        0B17 * CD 51 0D   CALL get_chtab_422b
+        0B1A * A7         ANA A
+        0B1B * CA 2D 0B   JZ L0B2D
         0B1E ? 36 00      MVI M,00H
         0B20 ? F1         POP PSW
         0B21 ? EE 40      XRI 40H
@@ -2233,24 +2239,25 @@ From a Claude session on 2025 10 19
         0B8F * CD 5B 0D   CALL get_chtab_423b
         0B92 * A7         ANA A
         0B93 * CA B0 0B   JZ L0BB0
-        0B96 ? CD 51 0D   CALL get_chtab_422b
-        0B99 ? A7         ANA A
-        0B9A ? CA B0 0B   JZ L0BB0
+        0B96 * CD 51 0D   CALL get_chtab_422b
+        0B99 * A7         ANA A
+        0B9A * CA B0 0B   JZ L0BB0
         0B9D ? CD 65 0D   CALL get_chtab_424b
         0BA0 ? FE 00      CPI 00H
         0BA2 ? DA C6 0B   JC L0BC6
-        0BA5 ? 36 00      MVI M,00H
-        0BA7 ? CD 51 0D   CALL get_chtab_422b
-        0BAA ? 36 00      MVI M,00H
-        0BAC ? E1         POP H
-        0BAD ? C3 31 0B   JMP L0B31
+        L0BA5:
+        0BA5 * 36 00      MVI M,00H
+        0BA7 * CD 51 0D   CALL get_chtab_422b
+        0BAA * 36 00      MVI M,00H
+        0BAC * E1         POP H
+        0BAD * C3 31 0B   JMP L0B31
         L0BB0:
         0BB0 * CD 65 0D   CALL get_chtab_424b
         0BB3 * FE 01      CPI 01H
         0BB5 * D2 C6 0B   JNC L0BC6
-        0BB8 ? CD 6F 0D   CALL get_chtab_425b
-        0BBB ? A7         ANA A
-        0BBC ? CA DF 0B   JZ L0BDF
+        0BB8 * CD 6F 0D   CALL get_chtab_425b
+        0BBB * A7         ANA A
+        0BBC * CA DF 0B   JZ L0BDF
         0BBF ? CD 51 0D   CALL get_chtab_422b
         0BC2 ? A7         ANA A
         0BC3 ? C2 DF 0B   JNZ L0BDF
@@ -2266,8 +2273,9 @@ From a Claude session on 2025 10 19
         0BDA * 12         STAX D
         0BDB * E1         POP H
         0BDC * C3 6B 0A   JMP L0A6B
-        0BDF ? CD 65 0D   CALL get_chtab_424b
-        0BE2 ? C3 A5 0B   JMP L0BA5
+        L0BDF:
+        0BDF * CD 65 0D   CALL get_chtab_424b
+        0BE2 * C3 A5 0B   JMP L0BA5
         L0BE5:
         0BE5 * FE 46      CPI 46H
         0BE7 * C2 F7 0B   JNZ L0BF7
@@ -2490,13 +2498,13 @@ From a Claude session on 2025 10 19
         ;   Get byte C of the 16-byte table at 425Bh.
         ;----------------------------------------------------------------------
         get_chtab_425b:
-        0D6F   C5         PUSH B
-        0D70   06 00      MVI B,00H
-        0D72   21 5B 42   LXI H,CHTAB_425B
-        0D75   09         DAD B
-        0D76   7E         MOV A,M
-        0D77   C1         POP B
-        0D78   C9         RET
+        0D6F * C5         PUSH B
+        0D70 * 06 00      MVI B,00H
+        0D72 * 21 5B 42   LXI H,CHTAB_425B
+        0D75 * 09         DAD B
+        0D76 * 7E         MOV A,M
+        0D77 * C1         POP B
+        0D78 * C9         RET
         0D79            DB   76H x 39  ; padding (HLT)
 
         ;============================================================================
@@ -2507,13 +2515,14 @@ From a Claude session on 2025 10 19
 
         ;----------------------------------------------------------------------
         ; boot  (0DA0H)
-        ;   Boot: system latch := 0, UART0 reset, ROM checksum (0000h-1A2Fh vs
-        ;   byte at 1A30h), RAM test 4000h-BFFFh, then peripheral/data init.
+        ;   Boot: INT_ENABLE := 0 (all interrupt sources off), UART0 reset, ROM
+        ;   checksum (0000h-1A2Fh vs byte at 1A30h), RAM test 4000h-BFFFh, then
+        ;   peripheral/data init.
         ;----------------------------------------------------------------------
         boot:
         0DA0 * F3         DI
         0DA1 * 3E 00      MVI A,00H
-        0DA3 * D3 FE      OUT SYSCTL                 ; system control latch := 0
+        0DA3 * D3 FE      OUT INT_ENABLE             ; INT_ENABLE := 0: every interrupt source off
         0DA5 * 3E 03      MVI A,03H
         0DA7 * D3 61      OUT UART0_CTL              ; 8251: dummy/flush
         0DA9 * 3E 53      MVI A,53H
@@ -2810,7 +2819,7 @@ From a Claude session on 2025 10 19
         ;============================================================================
         ; 1000-10D5  PERIPHERAL INITIALISATION AND START-UP
         ;   Sync 8251 (03 53 98 16 96), 8255 (82H), 12 async 8251s (03 53 FA 25),
-        ;   banner copied to RAM, SYSCTL := 7EH, EI, then idle_loop.
+        ;   banner copied to RAM, INT_ENABLE := 7EH (RST 1-6 sources on), EI, then idle_loop.
         ;============================================================================
 
         ;----------------------------------------------------------------------
@@ -2874,7 +2883,8 @@ From a Claude session on 2025 10 19
         ;----------------------------------------------------------------------
         ; banner_init  (1060H)
         ;   Copy the banner (10D6h, 48 bytes) and the 44-byte control-block
-        ;   image (1106h) into RAM; write 7Eh to SYSCTL; EI; go idle.
+        ;   image (1106h) into RAM; write 7Eh to INT_ENABLE (enables the sources
+        ;   for RST 1-6); EI; go idle.
         ;----------------------------------------------------------------------
         banner_init:
         1060 * 72         MOV M,D
@@ -2897,8 +2907,8 @@ From a Claude session on 2025 10 19
         1078 * 0C         INR C
         1079 * C3 24 10   JMP L1024
         L107C:
-        107C * 3E 7E      MVI A,7EH
-        107E * D3 FE      OUT SYSCTL
+        107C * 3E 7E      MVI A,7EH                  ; bits 1-6 set: sources for RST 1 to RST 6
+        107E * D3 FE      OUT INT_ENABLE             ; INT_ENABLE := 7EH
         1080 * 21 06 11   LXI H,INIT_IMAGE
         1083 * 11 F9 41   LXI D,INIT_BLOCK
         1086 * 06 2C      MVI B,2CH
@@ -3400,39 +3410,39 @@ From a Claude session on 2025 10 19
         ;   returns index.
         ;----------------------------------------------------------------------
         cmd_match:
-        1500   C5         PUSH B
-        1501   11 9E 16   LXI D,CMD_TABLE
-        1504   06 00      MVI B,00H
+        1500 * C5         PUSH B
+        1501 * 11 9E 16   LXI D,CMD_TABLE
+        1504 * 06 00      MVI B,00H
         L1506:
-        1506   E5         PUSH H
-        1507   1A         LDAX D
-        1508   A7         ANA A
-        1509   CA 19 15   JZ L1519
-        150C   4F         MOV C,A
-        150D   13         INX D
+        1506 * E5         PUSH H
+        1507 * 1A         LDAX D
+        1508 * A7         ANA A
+        1509 * CA 19 15   JZ L1519
+        150C * 4F         MOV C,A
+        150D * 13         INX D
         L150E:
-        150E   1A         LDAX D
-        150F   BE         CMP M
-        1510   C2 1D 15   JNZ L151D
-        1513   13         INX D
-        1514   23         INX H
-        1515   0D         DCR C
-        1516   C2 0E 15   JNZ L150E
+        150E * 1A         LDAX D
+        150F * BE         CMP M
+        1510 * C2 1D 15   JNZ L151D
+        1513 * 13         INX D
+        1514 * 23         INX H
+        1515 * 0D         DCR C
+        1516 * C2 0E 15   JNZ L150E
         L1519:
-        1519   78         MOV A,B
-        151A   E1         POP H
-        151B   C1         POP B
-        151C   C9         RET
+        1519 * 78         MOV A,B
+        151A * E1         POP H
+        151B * C1         POP B
+        151C * C9         RET
         L151D:
-        151D   78         MOV A,B
-        151E   06 00      MVI B,00H
-        1520   EB         XCHG
-        1521   09         DAD B
-        1522   EB         XCHG
-        1523   E1         POP H
-        1524   47         MOV B,A
-        1525   04         INR B
-        1526   C3 06 15   JMP L1506
+        151D * 78         MOV A,B
+        151E * 06 00      MVI B,00H
+        1520 * EB         XCHG
+        1521 * 09         DAD B
+        1522 * EB         XCHG
+        1523 * E1         POP H
+        1524 * 47         MOV B,A
+        1525 * 04         INR B
+        1526 * C3 06 15   JMP L1506
 
         ;----------------------------------------------------------------------
         ; tbl_get  (1529H)
@@ -3464,104 +3474,104 @@ From a Claude session on 2025 10 19
         ;   RESET).
         ;----------------------------------------------------------------------
         cmd_dispatch:
-        1537   F5         PUSH PSW
-        1538   A7         ANA A
-        1539   CA 63 15   JZ L1563
-        153C   3D         DCR A
-        153D   CA 70 15   JZ L1570
-        1540   3D         DCR A
-        1541   CA 7C 15   JZ L157C
-        1544   3D         DCR A
-        1545   CA 89 15   JZ L1589
-        1548   3D         DCR A
-        1549   CA 95 15   JZ L1595
-        154C   3D         DCR A
-        154D   CA A2 15   JZ L15A2
-        1550   3D         DCR A
-        1551   CA AE 15   JZ L15AE
-        1554   3D         DCR A
-        1555   CA BB 15   JZ L15BB
-        1558   3D         DCR A
-        1559   CA C7 15   JZ L15C7
-        155C   3D         DCR A
-        155D   CA C9 15   JZ L15C9
-        1560   C3 E7 15   JMP L15E7
+        1537 * F5         PUSH PSW
+        1538 * A7         ANA A
+        1539 * CA 63 15   JZ L1563
+        153C * 3D         DCR A
+        153D * CA 70 15   JZ L1570
+        1540 * 3D         DCR A
+        1541 * CA 7C 15   JZ L157C
+        1544 * 3D         DCR A
+        1545 * CA 89 15   JZ L1589
+        1548 * 3D         DCR A
+        1549 * CA 95 15   JZ L1595
+        154C * 3D         DCR A
+        154D * CA A2 15   JZ L15A2
+        1550 * 3D         DCR A
+        1551 * CA AE 15   JZ L15AE
+        1554 * 3D         DCR A
+        1555 * CA BB 15   JZ L15BB
+        1558 * 3D         DCR A
+        1559 * CA C7 15   JZ L15C7
+        155C * 3D         DCR A
+        155D * CA C9 15   JZ L15C9
+        1560 * C3 E7 15   JMP L15E7
         L1563:
-        1563   3E 01      MVI A,01H
-        1565   21 3B 42   LXI H,CHTAB_423B
-        1568   CD 30 15   CALL tbl_set
-        156B   F1         POP PSW
-        156C   21 F6 16   LXI H,MSG_ASC128_ON
-        156F   C9         RET
+        1563 * 3E 01      MVI A,01H
+        1565 * 21 3B 42   LXI H,CHTAB_423B
+        1568 * CD 30 15   CALL tbl_set
+        156B * F1         POP PSW
+        156C * 21 F6 16   LXI H,MSG_ASC128_ON
+        156F * C9         RET
         L1570:
-        1570   97         SUB A
-        1571   21 3B 42   LXI H,CHTAB_423B
-        1574   CD 30 15   CALL tbl_set
-        1577   F1         POP PSW
-        1578   21 1D 17   LXI H,MSG_ASC128_OFF
-        157B   C9         RET
+        1570 * 97         SUB A
+        1571 * 21 3B 42   LXI H,CHTAB_423B
+        1574 * CD 30 15   CALL tbl_set
+        1577 * F1         POP PSW
+        1578 * 21 1D 17   LXI H,MSG_ASC128_OFF
+        157B * C9         RET
         L157C:
-        157C   3E 01      MVI A,01H
-        157E   21 5B 42   LXI H,CHTAB_425B
-        1581   CD 30 15   CALL tbl_set
-        1584   F1         POP PSW
-        1585   21 41 17   LXI H,MSG_AUTO80_ON
-        1588   C9         RET
+        157C * 3E 01      MVI A,01H
+        157E * 21 5B 42   LXI H,CHTAB_425B
+        1581 * CD 30 15   CALL tbl_set
+        1584 * F1         POP PSW
+        1585 * 21 41 17   LXI H,MSG_AUTO80_ON
+        1588 * C9         RET
         L1589:
-        1589   97         SUB A
-        158A   21 5B 42   LXI H,CHTAB_425B
-        158D   CD 30 15   CALL tbl_set
-        1590   F1         POP PSW
-        1591   21 69 17   LXI H,MSG_AUTO80_OFF
-        1594   C9         RET
+        1589 * 97         SUB A
+        158A * 21 5B 42   LXI H,CHTAB_425B
+        158D * CD 30 15   CALL tbl_set
+        1590 * F1         POP PSW
+        1591 * 21 69 17   LXI H,MSG_AUTO80_OFF
+        1594 * C9         RET
         L1595:
-        1595   3E 01      MVI A,01H
-        1597   21 6B 42   LXI H,CHTAB_426B
-        159A   CD 30 15   CALL tbl_set
-        159D   F1         POP PSW
-        159E   21 8F 17   LXI H,MSG_HP_ON
-        15A1   C9         RET
+        1595 * 3E 01      MVI A,01H
+        1597 * 21 6B 42   LXI H,CHTAB_426B
+        159A * CD 30 15   CALL tbl_set
+        159D * F1         POP PSW
+        159E * 21 8F 17   LXI H,MSG_HP_ON
+        15A1 * C9         RET
         L15A2:
-        15A2   97         SUB A
-        15A3   21 6B 42   LXI H,CHTAB_426B
-        15A6   CD 30 15   CALL tbl_set
-        15A9   F1         POP PSW
-        15AA   21 A9 17   LXI H,MSG_HP_OFF
-        15AD   C9         RET
+        15A2 * 97         SUB A
+        15A3 * 21 6B 42   LXI H,CHTAB_426B
+        15A6 * CD 30 15   CALL tbl_set
+        15A9 * F1         POP PSW
+        15AA * 21 A9 17   LXI H,MSG_HP_OFF
+        15AD * C9         RET
         L15AE:
-        15AE   3E 01      MVI A,01H
-        15B0   21 7B 42   LXI H,CHTAB_427B
-        15B3   CD 30 15   CALL tbl_set
-        15B6   F1         POP PSW
-        15B7   21 C4 17   LXI H,MSG_PTAPE_ON
-        15BA   C9         RET
+        15AE * 3E 01      MVI A,01H
+        15B0 * 21 7B 42   LXI H,CHTAB_427B
+        15B3 * CD 30 15   CALL tbl_set
+        15B6 * F1         POP PSW
+        15B7 * 21 C4 17   LXI H,MSG_PTAPE_ON
+        15BA * C9         RET
         L15BB:
-        15BB   97         SUB A
-        15BC   21 7B 42   LXI H,CHTAB_427B
-        15BF   CD 30 15   CALL tbl_set
-        15C2   F1         POP PSW
-        15C3   21 DD 17   LXI H,MSG_PTAPE_OFF
-        15C6   C9         RET
+        15BB * 97         SUB A
+        15BC * 21 7B 42   LXI H,CHTAB_427B
+        15BF * CD 30 15   CALL tbl_set
+        15C2 * F1         POP PSW
+        15C3 * 21 DD 17   LXI H,MSG_PTAPE_OFF
+        15C6 * C9         RET
         L15C7:
-        15C7   F1         POP PSW
-        15C8   C9         RET
+        15C7 * F1         POP PSW
+        15C8 * C9         RET
         L15C9:
-        15C9   97         SUB A
-        15CA   21 3B 42   LXI H,CHTAB_423B
-        15CD   CD 30 15   CALL tbl_set
-        15D0   21 5B 42   LXI H,CHTAB_425B
-        15D3   CD 30 15   CALL tbl_set
-        15D6   21 6B 42   LXI H,CHTAB_426B
-        15D9   CD 30 15   CALL tbl_set
-        15DC   21 7B 42   LXI H,CHTAB_427B
-        15DF   CD 30 15   CALL tbl_set
-        15E2   F1         POP PSW
-        15E3   21 6E 18   LXI H,MSG_USER_PORT_NORMAL
-        15E6   C9         RET
+        15C9 * 97         SUB A
+        15CA * 21 3B 42   LXI H,CHTAB_423B
+        15CD * CD 30 15   CALL tbl_set
+        15D0 * 21 5B 42   LXI H,CHTAB_425B
+        15D3 * CD 30 15   CALL tbl_set
+        15D6 * 21 6B 42   LXI H,CHTAB_426B
+        15D9 * CD 30 15   CALL tbl_set
+        15DC * 21 7B 42   LXI H,CHTAB_427B
+        15DF * CD 30 15   CALL tbl_set
+        15E2 * F1         POP PSW
+        15E3 * 21 6E 18   LXI H,MSG_USER_PORT_NORMAL
+        15E6 * C9         RET
         L15E7:
-        15E7   F1         POP PSW
-        15E8   21 8A 18   LXI H,MSG_ILLEGAL_COMMAND
-        15EB   C9         RET
+        15E7 * F1         POP PSW
+        15E8 * 21 8A 18   LXI H,MSG_ILLEGAL_COMMAND
+        15EB * C9         RET
 
         ;----------------------------------------------------------------------
         ; build_reply  (15ECH)
@@ -3612,75 +3622,75 @@ From a Claude session on 2025 10 19
         161D * C1         POP B
         161E * C9         RET
         L161F:
-        161F   E1         POP H
-        1620   F1         POP PSW
-        1621   C1         POP B
-        1622   E5         PUSH H
-        1623   21 3B 42   LXI H,CHTAB_423B
-        1626   CD 29 15   CALL tbl_get
-        1629   A7         ANA A
-        162A   C2 33 16   JNZ L1633
-        162D   21 1D 17   LXI H,MSG_ASC128_OFF
-        1630   C3 36 16   JMP L1636
+        161F * E1         POP H
+        1620 * F1         POP PSW
+        1621 * C1         POP B
+        1622 * E5         PUSH H
+        1623 * 21 3B 42   LXI H,CHTAB_423B
+        1626 * CD 29 15   CALL tbl_get
+        1629 * A7         ANA A
+        162A * C2 33 16   JNZ L1633
+        162D * 21 1D 17   LXI H,MSG_ASC128_OFF
+        1630 * C3 36 16   JMP L1636
         L1633:
         1633   21 F6 16   LXI H,MSG_ASC128_ON
         L1636:
-        1636   46         MOV B,M
-        1637   05         DCR B
-        1638   23         INX H
-        1639   EB         XCHG
-        163A   CD 94 16   CALL copy_bytes
-        163D   EB         XCHG
-        163E   21 5B 42   LXI H,CHTAB_425B
-        1641   CD 29 15   CALL tbl_get
-        1644   A7         ANA A
-        1645   C2 4E 16   JNZ L164E
-        1648   21 69 17   LXI H,MSG_AUTO80_OFF
-        164B   C3 51 16   JMP L1651
+        1636 * 46         MOV B,M
+        1637 * 05         DCR B
+        1638 * 23         INX H
+        1639 * EB         XCHG
+        163A * CD 94 16   CALL copy_bytes
+        163D * EB         XCHG
+        163E * 21 5B 42   LXI H,CHTAB_425B
+        1641 * CD 29 15   CALL tbl_get
+        1644 * A7         ANA A
+        1645 * C2 4E 16   JNZ L164E
+        1648 * 21 69 17   LXI H,MSG_AUTO80_OFF
+        164B * C3 51 16   JMP L1651
         L164E:
         164E   21 41 17   LXI H,MSG_AUTO80_ON
         L1651:
-        1651   46         MOV B,M
-        1652   05         DCR B
-        1653   23         INX H
-        1654   EB         XCHG
-        1655   CD 94 16   CALL copy_bytes
-        1658   EB         XCHG
-        1659   21 6B 42   LXI H,CHTAB_426B
-        165C   CD 29 15   CALL tbl_get
-        165F   A7         ANA A
-        1660   C2 69 16   JNZ L1669
-        1663   21 A9 17   LXI H,MSG_HP_OFF
-        1666   C3 6C 16   JMP L166C
+        1651 * 46         MOV B,M
+        1652 * 05         DCR B
+        1653 * 23         INX H
+        1654 * EB         XCHG
+        1655 * CD 94 16   CALL copy_bytes
+        1658 * EB         XCHG
+        1659 * 21 6B 42   LXI H,CHTAB_426B
+        165C * CD 29 15   CALL tbl_get
+        165F * A7         ANA A
+        1660 * C2 69 16   JNZ L1669
+        1663 * 21 A9 17   LXI H,MSG_HP_OFF
+        1666 * C3 6C 16   JMP L166C
         L1669:
         1669   21 8F 17   LXI H,MSG_HP_ON
         L166C:
-        166C   46         MOV B,M
-        166D   05         DCR B
-        166E   23         INX H
-        166F   EB         XCHG
-        1670   CD 94 16   CALL copy_bytes
-        1673   EB         XCHG
-        1674   21 7B 42   LXI H,CHTAB_427B
-        1677   CD 29 15   CALL tbl_get
-        167A   A7         ANA A
-        167B   C2 84 16   JNZ L1684
-        167E   21 DD 17   LXI H,MSG_PTAPE_OFF
-        1681   C3 87 16   JMP L1687
+        166C * 46         MOV B,M
+        166D * 05         DCR B
+        166E * 23         INX H
+        166F * EB         XCHG
+        1670 * CD 94 16   CALL copy_bytes
+        1673 * EB         XCHG
+        1674 * 21 7B 42   LXI H,CHTAB_427B
+        1677 * CD 29 15   CALL tbl_get
+        167A * A7         ANA A
+        167B * C2 84 16   JNZ L1684
+        167E * 21 DD 17   LXI H,MSG_PTAPE_OFF
+        1681 * C3 87 16   JMP L1687
         L1684:
         1684   21 C4 17   LXI H,MSG_PTAPE_ON
         L1687:
-        1687   46         MOV B,M
-        1688   05         DCR B
-        1689   23         INX H
-        168A   EB         XCHG
-        168B   CD 94 16   CALL copy_bytes
-        168E   EB         XCHG
-        168F   E1         POP H
-        1690   73         MOV M,E
-        1691   23         INX H
-        1692   72         MOV M,D
-        1693   C9         RET
+        1687 * 46         MOV B,M
+        1688 * 05         DCR B
+        1689 * 23         INX H
+        168A * EB         XCHG
+        168B * CD 94 16   CALL copy_bytes
+        168E * EB         XCHG
+        168F * E1         POP H
+        1690 * 73         MOV M,E
+        1691 * 23         INX H
+        1692 * 72         MOV M,D
+        1693 * C9         RET
 
         ;============================================================================
         ; 1694-169D  copy_bytes
@@ -3764,23 +3774,31 @@ From a Claude session on 2025 10 19
 
         ;============================================================================
         ; 1900-1A2F  PRINTER OUTPUT TASK (8255 PARALLEL PORT) AND BUFFER TRIM
-        ;   Waits for queued text, then writes each byte to PPI_A and pulses PC7 (strobe) once
-        ;   PPI_B bit 5 (busy) is clear.
+        ;   Started by the Cyber host: a data frame (ctl 12H) whose text ends in ESC space. Text format:
+        ;   first byte = carriage control (A = form feed, J = extra LF, anything else = LF CR);
+        ;   ESC 23H-3FH = (code-20H) spaces, ESC 43H-4FH = (code-40H) zeros, ESC @ / ESC A = CR (overprint).
+        ;   Each byte goes to PPI_A with a PC7 strobe once PB5 (busy) is low; PB3 high after a busy = keep waiting.
         ;============================================================================
 
         ;----------------------------------------------------------------------
         ; printer_task  (1900H)
-        ;   Output task for host data addressed to the printer (ESC space / ESC
-        ;   ! trailer): waits for a buffer, then feeds bytes to the 8255 port.
+        ;   Output task for host data that ends in ESC space. Waits until the
+        ;   print record (channel map entry 1) is in state 6, swaps the map
+        ;   entries so that it becomes the current record, then prints it: the
+        ;   first byte is the carriage-control character (A = form feed, J =
+        ;   extra line feed, anything else = LF CR), ESC 23h-3Fh gives (code -
+        ;   20h) spaces, ESC 43h-4Fh gives (code - 40h) zeros, ESC @ or ESC A is
+        ;   a carriage return; everything else is sent to printer_out. Sets
+        ;   state 5 when the text is done.
         ;----------------------------------------------------------------------
         printer_task:
-        1900 * 3E 02      MVI A,02H
+        1900 * 3E 02      MVI A,02H                  ; wait for work: let other tasks run
         1902 * CD C8 07   CALL task_switch
         1905 * 06 01      MVI B,01H
-        1907 * CD 4B 06   CALL chan_state_get
-        190A * FE 06      CPI 06H
+        1907 * CD 4B 06   CALL chan_state_get        ; state of the print record (map entry 1)
+        190A * FE 06      CPI 06H                    ; state 6 = a print block is waiting
         190C * C2 00 19   JNZ printer_task
-        190F * F3         DI
+        190F * F3         DI                         ; swap map entries 0 and 1 (A2CDh) so the print buffer becomes the current record
         1910 * 21 CD A2   LXI H,A2CDH
         1913 * 46         MOV B,M
         1914 * 23         INX H
@@ -3791,13 +3809,13 @@ From a Claude session on 2025 10 19
         1919 * FB         EI
         191A * 06 00      MVI B,00H
         191C * CD 4B 06   CALL chan_state_get
-        191F * 36 01      MVI M,01H
+        191F * 36 01      MVI M,01H                  ; state := 1 (printing)
         1921 * 23         INX H
         1922 * 23         INX H
         1923 * 23         INX H
         1924 * 23         INX H
         1925 * 23         INX H
-        1926 * 4E         MOV C,M
+        1926 * 4E         MOV C,M                    ; HL -> start of the text, BC := end
         1927 * 23         INX H
         1928 * 46         MOV B,M
         1929 * 0B         DCX B
@@ -3808,12 +3826,12 @@ From a Claude session on 2025 10 19
         192E * EB         XCHG
         192F * C3 B6 19   JMP L19B6
         L1932:
-        1932 * 7E         MOV A,M
-        1933 * FE 1B      CPI 1BH
+        1932 * 7E         MOV A,M                    ; next character
+        1933 * FE 1B      CPI 1BH                    ; ESC: formatting sequence
         1935 * CA 53 19   JZ L1953
-        1938 * CD E1 19   CALL printer_out
+        1938 * CD E1 19   CALL printer_out           ; plain character
         L193B:
-        193B * 78         MOV A,B
+        193B * 78         MOV A,B                    ; end of the text?
         193C * BC         CMP H
         193D * C2 4F 19   JNZ L194F
         1940 * 79         MOV A,C
@@ -3821,79 +3839,79 @@ From a Claude session on 2025 10 19
         1942 * C2 4F 19   JNZ L194F
         1945 * 06 00      MVI B,00H
         1947 * CD 4B 06   CALL chan_state_get
-        194A * 36 05      MVI M,05H
+        194A * 36 05      MVI M,05H                  ; state := 5 (done)
         194C * C3 00 19   JMP printer_task
         L194F:
         194F * 23         INX H
         1950 * C3 32 19   JMP L1932
         L1953:
-        1953   23         INX H
-        1954   7E         MOV A,M
-        1955   FE 23      CPI 23H
-        1957   FA 6F 19   JM L196F
-        195A   FE 40      CPI 40H
-        195C   F2 6F 19   JP L196F
+        1953 * 23         INX H                      ; the code after ESC
+        1954 * 7E         MOV A,M
+        1955 * FE 23      CPI 23H                    ; ESC 23h-3Fh: (code - 20h) spaces
+        1957 * FA 6F 19   JM L196F
+        195A * FE 40      CPI 40H
+        195C * F2 6F 19   JP L196F
         L195F:
-        195F   3E 20      MVI A,20H
-        1961   CD E1 19   CALL printer_out
-        1964   7E         MOV A,M
-        1965   3D         DCR A
-        1966   FE 20      CPI 20H
-        1968   CA 3B 19   JZ L193B
-        196B   77         MOV M,A
-        196C   C3 5F 19   JMP L195F
+        195F * 3E 20      MVI A,20H                  ; print one space
+        1961 * CD E1 19   CALL printer_out
+        1964 * 7E         MOV A,M
+        1965 * 3D         DCR A
+        1966 * FE 20      CPI 20H
+        1968 * CA 3B 19   JZ L193B
+        196B * 77         MOV M,A
+        196C * C3 5F 19   JMP L195F
         L196F:
-        196F   FE 40      CPI 40H
-        1971   CA 93 19   JZ L1993
-        1974   FE 41      CPI 41H
-        1976   CA 93 19   JZ L1993
-        1979   FE 43      CPI 43H
-        197B   FA 3B 19   JM L193B
-        197E   FE 50      CPI 50H
-        1980   F2 3B 19   JP L193B
+        196F * FE 40      CPI 40H                    ; not a tab
+        1971 * CA 93 19   JZ L1993                   ; ESC @ (40h) or ESC A (41h): carriage return (overprint)
+        1974 * FE 41      CPI 41H
+        1976 * CA 93 19   JZ L1993
+        1979 * FE 43      CPI 43H                    ; ESC 43h-4Fh: (code - 40h) zeros, other codes are ignored
+        197B * FA 3B 19   JM L193B
+        197E * FE 50      CPI 50H
+        1980 * F2 3B 19   JP L193B
         L1983:
-        1983   3E 30      MVI A,30H
-        1985   CD E1 19   CALL printer_out
-        1988   7E         MOV A,M
-        1989   3D         DCR A
-        198A   FE 40      CPI 40H
-        198C   CA 3B 19   JZ L193B
-        198F   77         MOV M,A
-        1990   C3 83 19   JMP L1983
+        1983 * 3E 30      MVI A,30H                  ; print one "0"
+        1985 * CD E1 19   CALL printer_out
+        1988 * 7E         MOV A,M
+        1989 * 3D         DCR A
+        198A * FE 40      CPI 40H
+        198C * CA 3B 19   JZ L193B
+        198F * 77         MOV M,A
+        1990 * C3 83 19   JMP L1983
         L1993:
-        1993   3E 0D      MVI A,0DH
-        1995   CD E1 19   CALL printer_out
-        1998   78         MOV A,B
-        1999   BC         CMP H
-        199A   C2 B6 19   JNZ L19B6
-        199D   79         MOV A,C
-        199E   BD         CMP L
-        199F   C2 B6 19   JNZ L19B6
-        19A2   06 00      MVI B,00H
-        19A4   CD 4B 06   CALL chan_state_get
-        19A7   36 05      MVI M,05H
-        19A9   3E 0A      MVI A,0AH
-        19AB   CD E1 19   CALL printer_out
-        19AE   3E 0D      MVI A,0DH
-        19B0   CD E1 19   CALL printer_out
-        19B3   C3 00 19   JMP printer_task
+        1993 * 3E 0D      MVI A,0DH                  ; carriage return
+        1995 * CD E1 19   CALL printer_out
+        1998 * 78         MOV A,B
+        1999 * BC         CMP H
+        199A * C2 B6 19   JNZ L19B6
+        199D * 79         MOV A,C
+        199E * BD         CMP L
+        199F * C2 B6 19   JNZ L19B6
+        19A2 * 06 00      MVI B,00H
+        19A4 * CD 4B 06   CALL chan_state_get
+        19A7 * 36 05      MVI M,05H
+        19A9 * 3E 0A      MVI A,0AH                  ; the text ended with ESC @: add line feed and carriage return
+        19AB * CD E1 19   CALL printer_out
+        19AE * 3E 0D      MVI A,0DH
+        19B0 * CD E1 19   CALL printer_out
+        19B3 * C3 00 19   JMP printer_task
         L19B6:
-        19B6 * 23         INX H
+        19B6 * 23         INX H                      ; the first byte of the text is the carriage-control character
         19B7 * 7E         MOV A,M
         19B8 * FE 1B      CPI 1BH
         19BA * CA 53 19   JZ L1953
-        19BD * FE 41      CPI 41H
+        19BD * FE 41      CPI 41H                    ; A: form feed
         19BF * C2 CA 19   JNZ L19CA
-        19C2   3E 0C      MVI A,0CH
-        19C4   CD E1 19   CALL printer_out
-        19C7   C3 3B 19   JMP L193B
+        19C2 * 3E 0C      MVI A,0CH
+        19C4 * CD E1 19   CALL printer_out
+        19C7 * C3 3B 19   JMP L193B
         L19CA:
-        19CA * FE 4A      CPI 4AH
+        19CA * FE 4A      CPI 4AH                    ; J: one extra line feed
         19CC * C2 D4 19   JNZ L19D4
-        19CF   3E 0A      MVI A,0AH
-        19D1   CD E1 19   CALL printer_out
+        19CF * 3E 0A      MVI A,0AH
+        19D1 * CD E1 19   CALL printer_out
         L19D4:
-        19D4 * 3E 0A      MVI A,0AH
+        19D4 * 3E 0A      MVI A,0AH                  ; any other character: line feed, carriage return (the character is not printed)
         19D6 * CD E1 19   CALL printer_out
         19D9 * 3E 0D      MVI A,0DH
         19DB * CD E1 19   CALL printer_out
@@ -3901,14 +3919,17 @@ From a Claude session on 2025 10 19
 
         ;----------------------------------------------------------------------
         ; printer_out  (19E1H)
-        ;   Wait for PPI_B bit 5 clear, write byte to PPI_A, pulse strobe on PC7
-        ;   (53h <- 0Eh/0Fh).
+        ;   Send the byte in A to the 8255 printer port: wait while PB5 (busy)
+        ;   is high, write PPI_A, pulse PC7 low then high (53h <- 0Eh, 0Fh).
+        ;   While busy the task yields (task_switch) and tests PB3: PB3 low
+        ;   means test busy again at once, PB3 high means keep waiting (offline
+        ;   or fault, inferred).
         ;----------------------------------------------------------------------
         printer_out:
         19E1 * 57         MOV D,A
         L19E2:
         19E2 * F3         DI
-        19E3 * DB 51      IN PPI_B
+        19E3 * DB 51      IN PPI_B                   ; PB5: busy
         19E5 * E6 20      ANI 20H
         19E7 * C2 F7 19   JNZ L19F7
         19EA * 7A         MOV A,D
@@ -3920,12 +3941,12 @@ From a Claude session on 2025 10 19
         19F5 * FB         EI
         19F6 * C9         RET
         L19F7:
-        19F7   3E 02      MVI A,02H
-        19F9   CD C8 07   CALL task_switch
-        19FC   DB 51      IN PPI_B
-        19FE   E6 08      ANI 08H
-        1A00   CA E2 19   JZ L19E2
-        1A03   C3 F7 19   JMP L19F7
+        19F7 * 3E 02      MVI A,02H                  ; busy: let other tasks run
+        19F9 * CD C8 07   CALL task_switch
+        19FC * DB 51      IN PPI_B                   ; PB3: hold / offline (inferred)
+        19FE * E6 08      ANI 08H
+        1A00 * CA E2 19   JZ L19E2                   ; PB3 low: test the busy line again at once
+        1A03 * C3 F7 19   JMP L19F7                  ; PB3 high: keep waiting
 
         ;----------------------------------------------------------------------
         ; buf_trim_tail  (1A06H)

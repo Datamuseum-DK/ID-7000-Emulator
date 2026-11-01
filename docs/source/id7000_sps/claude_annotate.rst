@@ -5,7 +5,7 @@ Annotated disassembly
 .. include:: ../claude_warning.rst
 
 .. code-block:: text
-  
+ 
         ; ===========================================================================
         ; ID-7000  IPC/1 + SPC/1  (SPS_1-5 + FUNK_1-3)  --  annotated 8080 disassembly
         ; Image  : SPS_1..5_5_890505_ADR_255 then FUNK_1..3_3_881229, 16384 bytes at 0000H
@@ -26,10 +26,12 @@ Annotated disassembly
         ;   0000-3FFF  ROM: 0000-27FF IPC/1 + SPC/1 (SPS), 2800-3FFF function library (FUNK)
         ;   27FF       station address on the aux link (0FFH = "ADR 255")
         ;   4000-4BB1  kernel and driver variables (zeroed at boot);  4BB2-4C0x SPC/1 variables
+        ;   4846-484B  in-use flags of the six operator-started process slots (never cleared except by a restart)
         ;   4C06-4D0C  aux message and command buffers;  4D8D-508D  aux transmit ring
         ;   52D5/5A55  digital output / input images (1920 bytes each, one byte per point)
         ;   77F0       analog value table (4-byte records);  7F5F-7FFF  function table copy
-        ;   8000-807B  user program header (as downloaded);  807C  user program entry
+        ;   8000-807B  user program header: starts with the program name (zero terminated, <= 40 bytes);  807C  user program entry (fixed)
+        ;   8000       the download always starts here (constant at 16EB); a download is refused while the program runs
         ;   F000       debugger ROM (not in these files)
         ;
         ; ----- I/O map (inferred) ---------------------------------------------------
@@ -38,18 +40,22 @@ Annotated disassembly
         ;   10-17  digital outputs (64 points)       20-33  digital inputs (160 points, active low)
         ;   40-4B  six analog modules (even = mux select / high byte, odd = strobe / status / low bits)
         ;   60/61  8251 operator console (7E1 x16), ADM-style ESC sequences
-        ;   FE     system latch      FF  timer tick acknowledge
+        ;   FE     INT_ENABLE  interrupt module: bit n enables the source of RST n (read/write)
+        ;   FF     TIMER_ACK   timer module: a read acknowledges the tick (FE/FF = interrupt and timer module, supplied information)
         ;
-        ; ----- interrupts -----------------------------------------------------------
-        ;   RST1 timer   RST2 aux UART   RST4 console UART   (RST3/5/6/7: EI;RET)
+        ; ----- interrupts (the bit in INT_ENABLE equals the RST number) ----------------
+        ;   RST1 (bit 1) timer   RST2 (bit 2) aux UART   RST4 (bit 4) console UART   (RST3/5/6/7: EI;RET)
+        ;   Each bit is set right after its device is initialised: 10H console (07E0), 04H aux (0EA9),
+        ;   02H timer when the clock process starts (02CF). Nothing ever clears a bit.
         ; ----- equates ----------------------------------------------------------------
         AUX_DATA           EQU  08H
         AUX_CTL            EQU  09H
         WDOG_OUT           EQU  0AH
         CON_DATA           EQU  60H
         CON_CTL            EQU  61H
-        SYSCTL             EQU  FEH
-        TICK_ACK           EQU  FFH
+        INT_ENABLE         EQU  FEH
+        TIMER_ACK          EQU  FFH
+        UPTIME             EQU  4000H
         CUR_PCB            EQU  4012H
         READYQ             EQU  4014H
         SLICE_CNT          EQU  4046H
@@ -62,6 +68,16 @@ Annotated disassembly
         SEM_TXRING_SPACE   EQU  40CBH
         SEM_CMD_AVAIL      EQU  40D7H
         SEM_ATTN           EQU  4101H
+        CLK_CNT4           EQU  483FH
+        CLK_CNT25          EQU  4840H
+        CLK_FLAG           EQU  4841H
+        TICK_DIV2          EQU  4845H
+        SLOT1_USED         EQU  4846H
+        SLOT2_USED         EQU  4847H
+        SLOT3_USED         EQU  4848H
+        SLOT4_USED         EQU  4849H
+        SLOT5_USED         EQU  484AH
+        SLOT6_USED         EQU  484BH
         SEM_CON_OUT        EQU  48A9H
         SEM_CON_LINE       EQU  48AFH
         CON_ECHO_FLAG      EQU  48B5H
@@ -149,8 +165,9 @@ Annotated disassembly
 
         ;----------------------------------------------------------------------
         ; trap  (0024H)
-        ;   TRAP (8085 vector, unused on an 8080): jumps to F000h, where the
-        ;   missing debugger ROM would be.
+        ;   TRAP vector (an 8085 input; the 8080 has none): jumps to the
+        ;   debugger entry F000H, which is outside this image. The D command
+        ;   calls F008H.
         ;----------------------------------------------------------------------
         trap:
         0024   C3 00 F0   JMP F000H
@@ -226,8 +243,8 @@ Annotated disassembly
         api_0091:
         0091   C3 B6 06   JMP  L06B6
         0094            DB   76H x 12  ; padding (HLT)
-        api_00A0:
-        00A0   C3 42 09   JMP  L0942
+        api_process_create:
+        00A0   C3 42 09   JMP  process_create_slots
         00A3            DB   76H x 6  ; padding (HLT)
         api_00A9:
         00A9   C3 16 05   JMP  sem_wait_timeout
@@ -268,10 +285,10 @@ Annotated disassembly
         00CB * 00         NOP
         00CC * 00         NOP
         00CD * 3E 00      MVI A,00H
-        00CF * D3 FE      OUT SYSCTL
-        00D1 * DB FF      IN TICK_ACK                ; IN FFh: dummy read acknowledges a pending tick
+        00CF * D3 FE      OUT INT_ENABLE             ; INT_ENABLE := 0: every interrupt source off
+        00D1 * DB FF      IN TIMER_ACK               ; dummy read: acknowledges a pending tick
         00D3 * 31 08 49   LXI SP,CON_OUT_BUF
-        00D6 * 21 00 40   LXI H,4000H
+        00D6 * 21 00 40   LXI H,UPTIME
         00D9 * 11 B2 4B   LXI D,4BB2H
         L00DC:
         00DC * 36 00      MVI M,00H
@@ -283,11 +300,11 @@ Annotated disassembly
         00E5 * BC         CMP H
         00E6 * C2 DC 00   JNZ L00DC
         00E9 * 3E 04      MVI A,04H
-        00EB * 32 3F 48   STA 483FH
+        00EB * 32 3F 48   STA CLK_CNT4
         00EE * 3E 19      MVI A,19H
-        00F0 * 32 40 48   STA 4840H
+        00F0 * 32 40 48   STA CLK_CNT25
         00F3 * 3E 02      MVI A,02H
-        00F5 * 32 45 48   STA 4845H
+        00F5 * 32 45 48   STA TICK_DIV2
         00F8 * 21 EE 48   LXI H,IN_STUB              ; RAM stub for IN: "IN p; RET" with the port patched at run time
         00FB * 36 DB      MVI M,DBH
         00FD * 23         INX H
@@ -300,7 +317,7 @@ Annotated disassembly
         0109 * 36 00      MVI M,00H
         010B * 23         INX H
         010C * 36 C9      MVI M,C9H
-        010E * CD B9 07   CALL L07B9
+        010E * CD B9 07   CALL console_init
         0111 * CD 48 0E   CALL aux_init
         0114 * CD 19 12   CALL spc1_init
         0117 * 21 E6 01   LXI H,01E6H
@@ -354,17 +371,23 @@ Annotated disassembly
 
         ;----------------------------------------------------------------------
         ; process_create  (0168H)
-        ;   Create/start a process from a descriptor at HL (used by boot and by
-        ;   the P command).
+        ;   Initialise a process from a 15-byte template (HL -> priority byte,
+        ;   DE = PCB address): priority to PCB+4, PCB queued on READYQ +
+        ;   5*priority, template words copied to PCB offsets 0EH, 10H, 0CH, 14H,
+        ;   12H, guard byte FFH at PCB+22H and at the stack top (PCB+5FH, or
+        ;   PCB+7BH when the byte at PCB+14H is 61H or more), the entry address
+        ;   pushed on the new stack so that the first dispatch RETs into it,
+        ;   saved SP = top-2-8 at PCB+2. Nothing lies below the entry address: a
+        ;   RET at the top level of a process goes to 00FFH.
         ;----------------------------------------------------------------------
         process_create:
-        0168 * 7E         MOV A,M
+        0168 * 7E         MOV A,M                    ; A := priority
         0169 * 23         INX H
         016A * E5         PUSH H
         016B * 21 04 00   LXI H,0004H
         016E * 19         DAD D
-        016F * 77         MOV M,A
-        0170 * 21 14 40   LXI H,READYQ
+        016F * 77         MOV M,A                    ; PCB+4 := priority
+        0170 * 21 14 40   LXI H,READYQ               ; queue head := READYQ + 5 * priority
         0173 * 01 05 00   LXI B,0005H
         L0176:
         0176 * A7         ANA A
@@ -376,9 +399,9 @@ Annotated disassembly
         017F * 44         MOV B,H
         0180 * 4D         MOV C,L
         0181 * 3E 01      MVI A,01H
-        0183 * CD 03 04   CALL queue_insert
+        0183 * CD 03 04   CALL queue_insert          ; insert the PCB in the ready queue
         0186 * E1         POP H
-        0187 * 01 0E 00   LXI B,000EH
+        0187 * 01 0E 00   LXI B,000EH                ; copy the template words into the PCB
         018A * CD E9 01   CALL L01E9
         018D * 01 10 00   LXI B,0010H
         0190 * CD E9 01   CALL L01E9
@@ -388,7 +411,7 @@ Annotated disassembly
         019C * CD E9 01   CALL L01E9
         019F * 01 12 00   LXI B,0012H
         01A2 * CD E9 01   CALL L01E9
-        01A5 * 4E         MOV C,M
+        01A5 * 4E         MOV C,M                    ; BC := entry address (last template word)
         01A6 * 23         INX H
         01A7 * 46         MOV B,M
         01A8 * C5         PUSH B
@@ -396,7 +419,7 @@ Annotated disassembly
         01AC * 19         DAD D
         01AD * 44         MOV B,H
         01AE * 4D         MOV C,L
-        01AF * 36 FF      MVI M,FFH
+        01AF * 36 FF      MVI M,FFH                  ; guard byte FFH at PCB+22H, the bottom of the stack area
         01B1 * 21 0A 00   LXI H,000AH
         01B4 * 19         DAD D
         01B5 * 71         MOV M,C
@@ -404,7 +427,7 @@ Annotated disassembly
         01B7 * 70         MOV M,B
         01B8 * 21 14 00   LXI H,0014H
         01BB * 19         DAD D
-        01BC * 7E         MOV A,M
+        01BC * 7E         MOV A,M                    ; the byte at PCB+14H chooses the stack top: PCB+5FH, or PCB+7BH when it is 61H or more
         01BD * 21 5F 00   LXI H,005FH
         01C0 * FE 61      CPI 61H
         01C2 * DA C8 01   JC L01C8
@@ -413,7 +436,7 @@ Annotated disassembly
         01C8 * 19         DAD D
         01C9 * 44         MOV B,H
         01CA * 4D         MOV C,L
-        01CB * 36 FF      MVI M,FFH
+        01CB * 36 FF      MVI M,FFH                  ; guard byte FFH at the stack top
         01CD * 21 08 00   LXI H,0008H
         01D0 * 19         DAD D
         01D1 * 71         MOV M,C
@@ -423,10 +446,10 @@ Annotated disassembly
         01D5 * 69         MOV L,C
         01D6 * 2B         DCX H
         01D7 * C1         POP B
-        01D8 * 70         MOV M,B
+        01D8 * 70         MOV M,B                    ; push the entry address: the first dispatch RETs into the process
         01D9 * 2B         DCX H
         01DA * 71         MOV M,C
-        01DB * 01 F8 FF   LXI B,FFF8H
+        01DB * 01 F8 FF   LXI B,FFF8H                ; saved SP := top - 2 - 8 (room for the register frame)
         01DE * 09         DAD B
         01DF * 44         MOV B,H
         01E0 * 4D         MOV C,L
@@ -517,17 +540,19 @@ Annotated disassembly
 
         ;----------------------------------------------------------------------
         ; proc_clock  (02C7H)
-        ;   Process "A" (prio 0): waits for SEM_TICK5 (every 5 ticks), pulses
-        ;   port 0Ah (watchdog/heartbeat - inferred) and keeps the real-time
-        ;   counters.
+        ;   Process "A" (prio 0): sets bit 1 of INT_ENABLE (timer interrupt on),
+        ;   then waits for SEM_TICK5 (every 5th tick), writes port 0AH, ages the
+        ;   delay list at 404EH (5 ticks per event) and counts events: CLK_CNT4
+        ;   counts 4 and CLK_CNT25 counts 25, so every 100 events (500 ticks)
+        ;   CLK_FLAG is set to F8H.
         ;----------------------------------------------------------------------
         proc_clock:
         02C7 * 3E 05      MVI A,05H
         02C9 * 32 46 40   STA SLICE_CNT
         02CC * F3         DI
-        02CD * DB FE      IN SYSCTL
-        02CF * F6 02      ORI 02H
-        02D1 * D3 FE      OUT SYSCTL
+        02CD * DB FE      IN INT_ENABLE              ; read the interrupt enable register
+        02CF * F6 02      ORI 02H                    ; set bit 1: enable the RST 1 source (timer); the tick interrupt starts here
+        02D1 * D3 FE      OUT INT_ENABLE             ; write it back
         02D3 * FB         EI
         02D4 * 21 D4 02   LXI H,02D4H
         02D7 * E5         PUSH H
@@ -535,7 +560,7 @@ Annotated disassembly
         02DB * CD 4F 05   CALL sem_wait
         02DE * D3 0A      OUT WDOG_OUT
         02E0 * CD 5D 03   CALL L035D
-        02E3 * 21 3F 48   LXI H,483FH
+        02E3 * 21 3F 48   LXI H,CLK_CNT4
         02E6 * 35         DCR M
         02E7 * C2 F9 02   JNZ L02F9
         02EA * 36 04      MVI M,04H
@@ -546,7 +571,7 @@ Annotated disassembly
         02F2 * 3E F8      MVI A,F8H
         02F4 * 36 19      MVI M,19H
         L02F6:
-        02F6 * 32 41 48   STA 4841H
+        02F6 * 32 41 48   STA CLK_FLAG
         L02F9:
         02F9 * 3A 4E 40   LDA 404EH
         02FC * A7         ANA A
@@ -656,25 +681,27 @@ Annotated disassembly
 
         ;----------------------------------------------------------------------
         ; timer_isr  (0392H)
-        ;   Timer ISR (RST 1): reads TICK_ACK, counts ticks, signals SEM_TICK5
-        ;   every 5th tick, decrements the time slice and preempts when it
-        ;   expires.
+        ;   Timer ISR (RST 1): reads TIMER_ACK. Every second tick UPTIME (4000H,
+        ;   16 bit) is incremented (TICK_DIV2 at 4845H); a byte at 4843H counts
+        ;   down; every 5th tick (4046H, reloaded with 5) SEM_TICK5 is
+        ;   signalled; the running process time slice (PCB+7) is decremented and
+        ;   the process is moved to the tail of its queue when it expires.
         ;----------------------------------------------------------------------
         timer_isr:
         0392 * F5         PUSH PSW
         0393 * C5         PUSH B
         0394 * D5         PUSH D
         0395 * E5         PUSH H
-        0396 * DB FF      IN TICK_ACK
-        0398 * 3A 45 48   LDA 4845H
+        0396 * DB FF      IN TIMER_ACK               ; acknowledge the tick
+        0398 * 3A 45 48   LDA TICK_DIV2
         039B * 3D         DCR A
         039C * C2 A8 03   JNZ L03A8
-        039F * 2A 00 40   LHLD 4000H
+        039F * 2A 00 40   LHLD UPTIME
         03A2 * 23         INX H
-        03A3 * 22 00 40   SHLD 4000H
+        03A3 * 22 00 40   SHLD UPTIME
         03A6 * 3E 02      MVI A,02H
         L03A8:
-        03A8 * 32 45 48   STA 4845H
+        03A8 * 32 45 48   STA TICK_DIV2
         03AB * 3A 43 48   LDA 4843H
         03AE * FE 00      CPI 00H
         03B0 * CA B7 03   JZ L03B7
@@ -1080,15 +1107,15 @@ Annotated disassembly
         ;   Process "W" (prio 8): idle loop.
         ;----------------------------------------------------------------------
         proc_idle:
-        056E   1E 7F      MVI E,7FH
+        056E * 1E 7F      MVI E,7FH
         L0570:
-        0570   3E FF      MVI A,FFH
+        0570 * 3E FF      MVI A,FFH
         L0572:
-        0572   3D         DCR A
-        0573   C2 72 05   JNZ L0572
-        0576   1D         DCR E
-        0577   C2 70 05   JNZ L0570
-        057A   C3 6E 05   JMP proc_idle
+        0572 * 3D         DCR A
+        0573 * C2 72 05   JNZ L0572
+        0576 * 1D         DCR E
+        0577 * C2 70 05   JNZ L0570
+        057A * C3 6E 05   JMP proc_idle
 
         ;----------------------------------------------------------------------
         ; neg_hl  (057DH)
@@ -1562,7 +1589,13 @@ Annotated disassembly
         07B6   F1         POP PSW
         07B7   FB         EI
         07B8   C9         RET
-        L07B9:
+
+        ;----------------------------------------------------------------------
+        ; console_init  (07B9H)
+        ;   Initialise the console UART (03H, 53H, 7AH, 26H), dummy read of the
+        ;   data port, then set bit 4 of INT_ENABLE (RST 4 source).
+        ;----------------------------------------------------------------------
+        console_init:
         07B9 * 21 AF 48   LXI H,SEM_CON_LINE
         07BC * 36 00      MVI M,00H
         07BE * 23         INX H
@@ -1581,9 +1614,9 @@ Annotated disassembly
         07D7 * D3 61      OUT CON_CTL                ; 8251: command: RTS RxE DTR (transmitter off)
         07D9 * 32 C0 48   STA 48C0H
         07DC * DB 60      IN CON_DATA
-        07DE * DB FE      IN SYSCTL
-        07E0 * F6 10      ORI 10H
-        07E2 * D3 FE      OUT SYSCTL
+        07DE * DB FE      IN INT_ENABLE              ; read the interrupt enable register
+        07E0 * F6 10      ORI 10H                    ; set bit 4: enable the RST 4 source (console UART)
+        07E2 * D3 FE      OUT INT_ENABLE             ; write it back
         07E4 * C9         RET
 
         ;----------------------------------------------------------------------
@@ -1608,8 +1641,8 @@ Annotated disassembly
         07FC * 0A         LDAX B
         07FD * FE 01      CPI 01H
         07FF * C2 08 08   JNZ L0808
-        0802   01 01 41   LXI B,SEM_ATTN
-        0805   CD FE 04   CALL sem_signal_core
+        0802 * 01 01 41   LXI B,SEM_ATTN
+        0805 * CD FE 04   CALL sem_signal_core
         L0808:
         0808 * 3A B5 48   LDA CON_ECHO_FLAG
         080B * 07         RLC
@@ -1665,7 +1698,7 @@ Annotated disassembly
         0879 * D3 61      OUT CON_CTL
         087B * C3 7F 08   JMP L087F
         L087E:
-        087E   F1         POP PSW
+        087E * F1         POP PSW
         L087F:
         087F * E1         POP H
         0880 * D1         POP D
@@ -1790,28 +1823,39 @@ Annotated disassembly
         093B * 01 A9 48   LXI B,SEM_CON_OUT
         093E * CD FE 04   CALL sem_signal_core
         0941 * C9         RET
+
+        ;----------------------------------------------------------------------
+        ; process_create_slots  (0942H)
+        ;   API 00A0H: create a process. A = priority (1-8, else error), HL =
+        ;   start address. Uses the first free of three slots (flags
+        ;   4846H-4848H, templates 026DH, 027CH, 028BH), copies the template to
+        ;   RAM (484CH...), stores priority and entry and calls process_create.
+        ;   Returns carry set when no slot is free. The P command looks at six
+        ;   slots itself.
+        ;----------------------------------------------------------------------
+        process_create_slots:
         0942   F5         PUSH PSW
         0943   E5         PUSH H
-        0944   FE 00      CPI 00H
+        0944   FE 00      CPI 00H                    ; the priority must be 1-8
         0946   CA 66 09   JZ L0966
         0949   FE 09      CPI 09H
         094B   D2 66 09   JNC L0966
-        094E   3A 46 48   LDA 4846H
+        094E   3A 46 48   LDA SLOT1_USED             ; slot 1 free?
         0951   FE 00      CPI 00H
         0953   CA 6A 09   JZ L096A
-        0956   3A 47 48   LDA 4847H
+        0956   3A 47 48   LDA SLOT2_USED             ; slot 2 free?
         0959   FE 00      CPI 00H
         095B   CA 88 09   JZ L0988
-        095E   3A 48 48   LDA 4848H
+        095E   3A 48 48   LDA SLOT3_USED             ; slot 3 free?
         0961   FE 00      CPI 00H
         0963   CA A6 09   JZ L09A6
         L0966:
         0966   E1         POP H
         0967   F1         POP PSW
-        0968   37         STC
+        0968   37         STC                        ; no free slot: carry set
         0969   C9         RET
         L096A:
-        096A   11 6D 02   LXI D,026DH
+        096A   11 6D 02   LXI D,026DH                ; slot 1: copy the template to RAM (484CH)
         096D   21 4C 48   LXI H,484CH
         0970   06 0F      MVI B,0FH
         0972   CD 73 00   CALL api_memcpy
@@ -1820,7 +1864,7 @@ Annotated disassembly
         0979   F1         POP PSW
         097A   32 4E 48   STA 484EH
         097D   3E 01      MVI A,01H
-        097F   32 46 48   STA 4846H
+        097F   32 46 48   STA SLOT1_USED             ; slot 1 in use
         0982   21 4C 48   LXI H,484CH
         0985   C3 C4 09   JMP L09C4
         L0988:
@@ -1833,7 +1877,7 @@ Annotated disassembly
         0997   F1         POP PSW
         0998   32 5D 48   STA 485DH
         099B   3E 01      MVI A,01H
-        099D   32 47 48   STA 4847H
+        099D   32 47 48   STA SLOT2_USED
         09A0   21 5B 48   LXI H,485BH
         09A3   C3 C4 09   JMP L09C4
         L09A6:
@@ -1846,7 +1890,7 @@ Annotated disassembly
         09B5   F1         POP PSW
         09B6   32 6C 48   STA 486CH
         09B9   3E 01      MVI A,01H
-        09BB   32 48 48   STA 4848H
+        09BB   32 48 48   STA SLOT3_USED
         09BE   21 6A 48   LXI H,486AH
         09C1   C3 C4 09   JMP L09C4
         L09C4:
@@ -1862,13 +1906,17 @@ Annotated disassembly
 
         ;============================================================================
         ; 09CF-0C9A  OPERATOR DIALOG PROCESS
-        ;   Menu: C, D, P. P starts a process (priority 1-8, hex address). ESC returns to the menu.
+        ;   Menu: P = start a process (priority 1-8, hex address; six slots, then INGEN PROCESKONTROLBLOKKE LEDIGE),
+        ;   D = DI; CALL F008H (debugger ROM, not in the image), C = stub (JMP 09DDH, only redraws the menu).
+        ;   After P the dialog waits for ESC (attention semaphore) before it clears the screen and redraws the menu.
         ;============================================================================
 
         ;----------------------------------------------------------------------
         ; proc_dialog  (09CFH)
-        ;   Process (prio 3): operator dialog. Menu: C = SPC/1 dialog (stub), D
-        ;   = debugger (CALL F008h), P = start a process.
+        ;   Process (prio 3): operator dialog. The first character of the line
+        ;   chooses: P or p = start a process, D or d = debugger (DI; CALL
+        ;   F008H), C or c = stub (JMP 09DDH). Any other character prints
+        ;   INDTASTNINGSFEJL !.
         ;----------------------------------------------------------------------
         proc_dialog:
         09CF * CD F6 0B   CALL con_clear_screen
@@ -1892,20 +1940,20 @@ Annotated disassembly
         09F0 * CD A8 0B   CALL con_flush_buf
         L09F3:
         09F3 * CD AE 0B   CALL get_command
-        09F6 * 3A 58 49   LDA CON_LINE_BUF
-        09F9 * FE 50      CPI 50H
+        09F6 * 3A 58 49   LDA CON_LINE_BUF           ; first character of the command line
+        09F9 * FE 50      CPI 50H                    ; P
         09FB * CA 25 0A   JZ cmd_start_process
-        09FE * FE 44      CPI 44H
+        09FE * FE 44      CPI 44H                    ; D
         0A00 * CA 9B 0B   JZ cmd_debugger
-        0A03 * FE 43      CPI 43H
+        0A03 * FE 43      CPI 43H                    ; C
         0A05 * CA A5 0B   JZ cmd_spc1_dialog
-        0A08 * FE 70      CPI 70H
+        0A08 * FE 70      CPI 70H                    ; p
         0A0A * CA 25 0A   JZ cmd_start_process
-        0A0D * FE 64      CPI 64H
+        0A0D * FE 64      CPI 64H                    ; d
         0A0F * CA 9B 0B   JZ cmd_debugger
-        0A12 * FE 63      CPI 63H
+        0A12 * FE 63      CPI 63H                    ; c
         0A14 * CA A5 0B   JZ cmd_spc1_dialog
-        0A17 * 11 5E 0D   LXI D,0D5EH
+        0A17 * 11 5E 0D   LXI D,0D5EH                ; any other character: INDTASTNINGSFEJL !
         0A1A * 06 1D      MVI B,1DH
         0A1C * CD D9 0B   CALL con_build_text
         0A1F * CD A8 0B   CALL con_flush_buf
@@ -1913,8 +1961,12 @@ Annotated disassembly
 
         ;----------------------------------------------------------------------
         ; cmd_start_process  (0A25H)
-        ;   P command: ask for a priority (1-8) and a hex start address, take a
-        ;   free PCB template (026Dh+) and start it.
+        ;   P command: asks for a priority (1-8) and a hex start address
+        ;   (parse_hex), takes the first free of six slots (flags 4846H-484BH,
+        ;   templates 026DH-02B8H), copies the template to RAM (484CH + 15 per
+        ;   slot), fills in priority and entry and starts it through 0B78H. With
+        ;   all six in use it prints INGEN PROCESKONTROLBLOKKE LEDIGE (0E09H). A
+        ;   slot is never freed again; only a restart clears the flags.
         ;----------------------------------------------------------------------
         cmd_start_process:
         0A25 * 11 AB 0D   LXI D,0DABH
@@ -1931,120 +1983,120 @@ Annotated disassembly
         0A41 * CA 8D 0B   JZ L0B8D
         0A44 * FE 09      CPI 09H
         0A46 * D2 8D 0B   JNC L0B8D
-        0A49   32 A6 48   STA 48A6H
-        0A4C   11 E0 0D   LXI D,0DE0H
-        0A4F   06 29      MVI B,29H
-        0A51   CD D9 0B   CALL con_build_text
-        0A54   CD A8 0B   CALL con_flush_buf
-        0A57   CD AE 0B   CALL get_command
-        0A5A   FE 04      CPI 04H
-        0A5C   C2 8D 0B   JNZ L0B8D
-        0A5F   CD 01 0C   CALL L0C01
-        0A62   DA 8D 0B   JC L0B8D
-        0A65   11 58 49   LXI D,CON_LINE_BUF
-        0A68   CD DD 24   CALL parse_hex
-        0A6B   22 A7 48   SHLD 48A7H
-        0A6E   3A 46 48   LDA 4846H
-        0A71   FE 00      CPI 00H
-        0A73   CA AC 0A   JZ L0AAC
-        0A76   3A 47 48   LDA 4847H
-        0A79   FE 00      CPI 00H
-        0A7B   CA CE 0A   JZ L0ACE
-        0A7E   3A 48 48   LDA 4848H
-        0A81   FE 00      CPI 00H
-        0A83   CA F0 0A   JZ L0AF0
-        0A86   3A 49 48   LDA 4849H
-        0A89   FE 00      CPI 00H
-        0A8B   CA 12 0B   JZ L0B12
-        0A8E   3A 4A 48   LDA 484AH
-        0A91   FE 00      CPI 00H
-        0A93   CA 34 0B   JZ L0B34
-        0A96   3A 4B 48   LDA 484BH
-        0A99   FE 00      CPI 00H
-        0A9B   CA 56 0B   JZ L0B56
-        0A9E   11 09 0E   LXI D,0E09H
-        0AA1   06 26      MVI B,26H
-        0AA3   CD D9 0B   CALL con_build_text
-        0AA6   CD A8 0B   CALL con_flush_buf
-        0AA9   C3 81 0B   JMP L0B81
+        0A49 * 32 A6 48   STA 48A6H
+        0A4C * 11 E0 0D   LXI D,0DE0H
+        0A4F * 06 29      MVI B,29H
+        0A51 * CD D9 0B   CALL con_build_text
+        0A54 * CD A8 0B   CALL con_flush_buf
+        0A57 * CD AE 0B   CALL get_command
+        0A5A * FE 04      CPI 04H
+        0A5C * C2 8D 0B   JNZ L0B8D
+        0A5F * CD 01 0C   CALL L0C01
+        0A62 * DA 8D 0B   JC L0B8D
+        0A65 * 11 58 49   LXI D,CON_LINE_BUF
+        0A68 * CD DD 24   CALL parse_hex             ; parse the hex start address
+        0A6B * 22 A7 48   SHLD 48A7H
+        0A6E * 3A 46 48   LDA SLOT1_USED             ; slot 1 free?
+        0A71 * FE 00      CPI 00H
+        0A73 * CA AC 0A   JZ L0AAC
+        0A76 * 3A 47 48   LDA SLOT2_USED             ; slot 2 free?
+        0A79 * FE 00      CPI 00H
+        0A7B * CA CE 0A   JZ L0ACE
+        0A7E * 3A 48 48   LDA SLOT3_USED             ; slot 3 free?
+        0A81 * FE 00      CPI 00H
+        0A83 * CA F0 0A   JZ L0AF0
+        0A86 * 3A 49 48   LDA SLOT4_USED             ; slot 4 free?
+        0A89 * FE 00      CPI 00H
+        0A8B * CA 12 0B   JZ L0B12
+        0A8E * 3A 4A 48   LDA SLOT5_USED             ; slot 5 free?
+        0A91 * FE 00      CPI 00H
+        0A93 * CA 34 0B   JZ L0B34
+        0A96 * 3A 4B 48   LDA SLOT6_USED             ; slot 6 free?
+        0A99 * FE 00      CPI 00H
+        0A9B * CA 56 0B   JZ L0B56
+        0A9E * 11 09 0E   LXI D,0E09H                ; all six slots in use: INGEN PROCESKONTROLBLOKKE LEDIGE
+        0AA1 * 06 26      MVI B,26H
+        0AA3 * CD D9 0B   CALL con_build_text
+        0AA6 * CD A8 0B   CALL con_flush_buf
+        0AA9 * C3 81 0B   JMP L0B81
         L0AAC:
-        0AAC   11 6D 02   LXI D,026DH
-        0AAF   21 4C 48   LXI H,484CH
-        0AB2   06 0F      MVI B,0FH
-        0AB4   CD 73 00   CALL api_memcpy
-        0AB7   3A A6 48   LDA 48A6H
-        0ABA   32 4E 48   STA 484EH
-        0ABD   2A A7 48   LHLD 48A7H
-        0AC0   22 59 48   SHLD 4859H
-        0AC3   3E 01      MVI A,01H
-        0AC5   32 46 48   STA 4846H
-        0AC8   21 4C 48   LXI H,484CH
-        0ACB   C3 78 0B   JMP start_user_process
+        0AAC * 11 6D 02   LXI D,026DH
+        0AAF * 21 4C 48   LXI H,484CH
+        0AB2 * 06 0F      MVI B,0FH
+        0AB4 * CD 73 00   CALL api_memcpy
+        0AB7 * 3A A6 48   LDA 48A6H
+        0ABA * 32 4E 48   STA 484EH
+        0ABD * 2A A7 48   LHLD 48A7H
+        0AC0 * 22 59 48   SHLD 4859H
+        0AC3 * 3E 01      MVI A,01H
+        0AC5 * 32 46 48   STA SLOT1_USED
+        0AC8 * 21 4C 48   LXI H,484CH
+        0ACB * C3 78 0B   JMP start_user_process
         L0ACE:
-        0ACE   11 7C 02   LXI D,027CH
-        0AD1   21 5B 48   LXI H,485BH
-        0AD4   06 0F      MVI B,0FH
-        0AD6   CD 73 00   CALL api_memcpy
-        0AD9   3A A6 48   LDA 48A6H
-        0ADC   32 5D 48   STA 485DH
-        0ADF   2A A7 48   LHLD 48A7H
-        0AE2   22 68 48   SHLD 4868H
-        0AE5   3E 01      MVI A,01H
-        0AE7   32 47 48   STA 4847H
-        0AEA   21 5B 48   LXI H,485BH
-        0AED   C3 78 0B   JMP start_user_process
+        0ACE * 11 7C 02   LXI D,027CH
+        0AD1 * 21 5B 48   LXI H,485BH
+        0AD4 * 06 0F      MVI B,0FH
+        0AD6 * CD 73 00   CALL api_memcpy
+        0AD9 * 3A A6 48   LDA 48A6H
+        0ADC * 32 5D 48   STA 485DH
+        0ADF * 2A A7 48   LHLD 48A7H
+        0AE2 * 22 68 48   SHLD 4868H
+        0AE5 * 3E 01      MVI A,01H
+        0AE7 * 32 47 48   STA SLOT2_USED
+        0AEA * 21 5B 48   LXI H,485BH
+        0AED * C3 78 0B   JMP start_user_process
         L0AF0:
-        0AF0   11 8B 02   LXI D,028BH
-        0AF3   21 6A 48   LXI H,486AH
-        0AF6   06 0F      MVI B,0FH
-        0AF8   CD 73 00   CALL api_memcpy
-        0AFB   3A A6 48   LDA 48A6H
-        0AFE   32 6C 48   STA 486CH
-        0B01   2A A7 48   LHLD 48A7H
-        0B04   22 77 48   SHLD 4877H
-        0B07   3E 01      MVI A,01H
-        0B09   32 48 48   STA 4848H
-        0B0C   21 6A 48   LXI H,486AH
-        0B0F   C3 78 0B   JMP start_user_process
+        0AF0 * 11 8B 02   LXI D,028BH
+        0AF3 * 21 6A 48   LXI H,486AH
+        0AF6 * 06 0F      MVI B,0FH
+        0AF8 * CD 73 00   CALL api_memcpy
+        0AFB * 3A A6 48   LDA 48A6H
+        0AFE * 32 6C 48   STA 486CH
+        0B01 * 2A A7 48   LHLD 48A7H
+        0B04 * 22 77 48   SHLD 4877H
+        0B07 * 3E 01      MVI A,01H
+        0B09 * 32 48 48   STA SLOT3_USED
+        0B0C * 21 6A 48   LXI H,486AH
+        0B0F * C3 78 0B   JMP start_user_process
         L0B12:
-        0B12   11 9A 02   LXI D,029AH
-        0B15   21 79 48   LXI H,4879H
-        0B18   06 0F      MVI B,0FH
-        0B1A   CD 73 00   CALL api_memcpy
-        0B1D   3A A6 48   LDA 48A6H
-        0B20   32 7B 48   STA 487BH
-        0B23   2A A7 48   LHLD 48A7H
-        0B26   22 86 48   SHLD 4886H
-        0B29   3E 01      MVI A,01H
-        0B2B   32 49 48   STA 4849H
-        0B2E   21 79 48   LXI H,4879H
-        0B31   C3 78 0B   JMP start_user_process
+        0B12 * 11 9A 02   LXI D,029AH
+        0B15 * 21 79 48   LXI H,4879H
+        0B18 * 06 0F      MVI B,0FH
+        0B1A * CD 73 00   CALL api_memcpy
+        0B1D * 3A A6 48   LDA 48A6H
+        0B20 * 32 7B 48   STA 487BH
+        0B23 * 2A A7 48   LHLD 48A7H
+        0B26 * 22 86 48   SHLD 4886H
+        0B29 * 3E 01      MVI A,01H
+        0B2B * 32 49 48   STA SLOT4_USED
+        0B2E * 21 79 48   LXI H,4879H
+        0B31 * C3 78 0B   JMP start_user_process
         L0B34:
-        0B34   11 A9 02   LXI D,02A9H
-        0B37   21 88 48   LXI H,4888H
-        0B3A   06 0F      MVI B,0FH
-        0B3C   CD 73 00   CALL api_memcpy
-        0B3F   3A A6 48   LDA 48A6H
-        0B42   32 8A 48   STA 488AH
-        0B45   2A A7 48   LHLD 48A7H
-        0B48   22 95 48   SHLD 4895H
-        0B4B   3E 01      MVI A,01H
-        0B4D   32 4A 48   STA 484AH
-        0B50   21 88 48   LXI H,4888H
-        0B53   C3 78 0B   JMP start_user_process
+        0B34 * 11 A9 02   LXI D,02A9H
+        0B37 * 21 88 48   LXI H,4888H
+        0B3A * 06 0F      MVI B,0FH
+        0B3C * CD 73 00   CALL api_memcpy
+        0B3F * 3A A6 48   LDA 48A6H
+        0B42 * 32 8A 48   STA 488AH
+        0B45 * 2A A7 48   LHLD 48A7H
+        0B48 * 22 95 48   SHLD 4895H
+        0B4B * 3E 01      MVI A,01H
+        0B4D * 32 4A 48   STA SLOT5_USED
+        0B50 * 21 88 48   LXI H,4888H
+        0B53 * C3 78 0B   JMP start_user_process
         L0B56:
-        0B56   11 B8 02   LXI D,02B8H
-        0B59   21 97 48   LXI H,4897H
-        0B5C   06 0F      MVI B,0FH
-        0B5E   CD 73 00   CALL api_memcpy
-        0B61   3A A6 48   LDA 48A6H
-        0B64   32 99 48   STA 4899H
-        0B67   2A A7 48   LHLD 48A7H
-        0B6A   22 A4 48   SHLD 48A4H
-        0B6D   3E 01      MVI A,01H
-        0B6F   32 4B 48   STA 484BH
-        0B72   21 97 48   LXI H,4897H
-        0B75   C3 78 0B   JMP start_user_process
+        0B56 * 11 B8 02   LXI D,02B8H
+        0B59 * 21 97 48   LXI H,4897H
+        0B5C * 06 0F      MVI B,0FH
+        0B5E * CD 73 00   CALL api_memcpy
+        0B61 * 3A A6 48   LDA 48A6H
+        0B64 * 32 99 48   STA 4899H
+        0B67 * 2A A7 48   LHLD 48A7H
+        0B6A * 22 A4 48   SHLD 48A4H
+        0B6D * 3E 01      MVI A,01H
+        0B6F * 32 4B 48   STA SLOT6_USED
+        0B72 * 21 97 48   LXI H,4897H
+        0B75 * C3 78 0B   JMP start_user_process
 
         ;----------------------------------------------------------------------
         ; start_user_process  (0B78H)
@@ -2052,18 +2104,18 @@ Annotated disassembly
         ;   screen and return to the menu.
         ;----------------------------------------------------------------------
         start_user_process:
-        0B78   5E         MOV E,M
-        0B79   23         INX H
-        0B7A   56         MOV D,M
-        0B7B   23         INX H
-        0B7C   F3         DI
-        0B7D   CD 68 01   CALL process_create
-        0B80   FB         EI
+        0B78 * 5E         MOV E,M
+        0B79 * 23         INX H
+        0B7A * 56         MOV D,M
+        0B7B * 23         INX H
+        0B7C * F3         DI
+        0B7D * CD 68 01   CALL process_create
+        0B80 * FB         EI
         L0B81:
-        0B81   01 01 41   LXI B,SEM_ATTN
-        0B84   CD B8 00   CALL api_sem_wait
-        0B87   CD F6 0B   CALL con_clear_screen
-        0B8A   C3 DD 09   JMP menu
+        0B81 * 01 01 41   LXI B,SEM_ATTN             ; wait for ESC (SEM_ATTN), then clear the screen and redraw the menu
+        0B84 * CD B8 00   CALL api_sem_wait
+        0B87 * CD F6 0B   CALL con_clear_screen
+        0B8A * C3 DD 09   JMP menu
         L0B8D:
         0B8D * 11 7B 0D   LXI D,0D7BH
         0B90 * 06 30      MVI B,30H
@@ -2076,8 +2128,8 @@ Annotated disassembly
         ;   D command: DI; CALL F008h (external debugger).
         ;----------------------------------------------------------------------
         cmd_debugger:
-        0B9B   F3         DI
-        0B9C   CD 08 F0   CALL F008H
+        0B9B * F3         DI                         ; D: interrupts off while the debugger runs
+        0B9C * CD 08 F0   CALL F008H                 ; debugger ROM (not in the image); returns with RET
         0B9F   CD F6 0B   CALL con_clear_screen
         0BA2   C3 DD 09   JMP menu
 
@@ -2086,7 +2138,7 @@ Annotated disassembly
         ;   C command: only redraws the menu in this image.
         ;----------------------------------------------------------------------
         cmd_spc1_dialog:
-        0BA5 * C3 DD 09   JMP menu
+        0BA5 * C3 DD 09   JMP menu                   ; C: stub, only redraws the menu
 
         ;----------------------------------------------------------------------
         ; con_flush_buf  (0BA8H)
@@ -2158,28 +2210,28 @@ Annotated disassembly
         0BFB * CD D9 0B   CALL con_build_text
         0BFE * C3 A8 0B   JMP con_flush_buf
         L0C01:
-        0C01   21 58 49   LXI H,CON_LINE_BUF
-        0C04   06 04      MVI B,04H
+        0C01 * 21 58 49   LXI H,CON_LINE_BUF
+        0C04 * 06 04      MVI B,04H
         L0C06:
-        0C06   7E         MOV A,M
-        0C07   FE 30      CPI 30H
-        0C09   DA 2C 0C   JC L0C2C
-        0C0C   FE 3A      CPI 3AH
-        0C0E   DA 25 0C   JC L0C25
-        0C11   FE 41      CPI 41H
-        0C13   DA 2C 0C   JC L0C2C
-        0C16   FE 47      CPI 47H
-        0C18   DA 25 0C   JC L0C25
+        0C06 * 7E         MOV A,M
+        0C07 * FE 30      CPI 30H
+        0C09 * DA 2C 0C   JC L0C2C
+        0C0C * FE 3A      CPI 3AH
+        0C0E * DA 25 0C   JC L0C25
+        0C11 * FE 41      CPI 41H
+        0C13 * DA 2C 0C   JC L0C2C
+        0C16 * FE 47      CPI 47H
+        0C18 * DA 25 0C   JC L0C25
         0C1B   FE 61      CPI 61H
         0C1D   DA 2C 0C   JC L0C2C
         0C20   FE 67      CPI 67H
         0C22   D2 2C 0C   JNC L0C2C
         L0C25:
-        0C25   23         INX H
-        0C26   05         DCR B
-        0C27   C2 06 0C   JNZ L0C06
-        0C2A   AF         XRA A
-        0C2B   C9         RET
+        0C25 * 23         INX H
+        0C26 * 05         DCR B
+        0C27 * C2 06 0C   JNZ L0C06
+        0C2A * AF         XRA A
+        0C2B * C9         RET
         L0C2C:
         0C2C   37         STC
         0C2D   C9         RET
@@ -2352,9 +2404,9 @@ Annotated disassembly
         0E9E * 32 E6 48   STA 48E6H
         0EA1 * 32 E7 48   STA 48E7H
         0EA4 * 32 E8 48   STA 48E8H
-        0EA7 * DB FE      IN SYSCTL
-        0EA9 * F6 04      ORI 04H
-        0EAB * D3 FE      OUT SYSCTL
+        0EA7 * DB FE      IN INT_ENABLE              ; read the interrupt enable register
+        0EA9 * F6 04      ORI 04H                    ; set bit 2: enable the RST 2 source (aux UART)
+        0EAB * D3 FE      OUT INT_ENABLE             ; write it back
         0EAD * C9         RET
 
         ;----------------------------------------------------------------------
@@ -2510,8 +2562,8 @@ Annotated disassembly
         0FE6 * 2A B0 4B   LHLD AUX_CRC
         0FE9 * CD 85 00   CALL api_test_hl
         0FEC * CA F1 0F   JZ L0FF1
-        0FEF   37         STC
-        0FF0   C9         RET
+        0FEF * 37         STC
+        0FF0 * C9         RET
         L0FF1:
         0FF1 * 37         STC
         0FF2 * 3F         CMC
@@ -2537,26 +2589,26 @@ Annotated disassembly
         ;   Handle a received ACK (06h).
         ;----------------------------------------------------------------------
         aux_got_ack:
-        1014   3A EB 48   LDA 48EBH
-        1017   FE 00      CPI 00H
-        1019   C2 37 10   JNZ L1037
-        101C   3E 01      MVI A,01H
-        101E   C3 2B 10   JMP L102B
+        1014 * 3A EB 48   LDA 48EBH
+        1017 * FE 00      CPI 00H
+        1019 * C2 37 10   JNZ L1037
+        101C * 3E 01      MVI A,01H
+        101E * C3 2B 10   JMP L102B
 
         ;----------------------------------------------------------------------
         ; aux_got_nak  (1021H)
         ;   Handle a received NAK (15h).
         ;----------------------------------------------------------------------
         aux_got_nak:
-        1021   3A EB 48   LDA 48EBH
-        1024   FE 00      CPI 00H
-        1026   C2 37 10   JNZ L1037
+        1021 * 3A EB 48   LDA 48EBH
+        1024 * FE 00      CPI 00H
+        1026 * C2 37 10   JNZ L1037
         1029   3E 02      MVI A,02H
         L102B:
-        102B   32 EB 48   STA 48EBH
-        102E   01 B9 40   LXI B,SEM_AUX_FRAME
-        1031   CD B5 00   CALL api_00B5
-        1034   C3 37 10   JMP L1037
+        102B * 32 EB 48   STA 48EBH
+        102E * 01 B9 40   LXI B,SEM_AUX_FRAME
+        1031 * CD B5 00   CALL api_00B5
+        1034 * C3 37 10   JMP L1037
         L1037:
         1037 * E1         POP H
         1038 * D1         POP D
@@ -3200,7 +3252,7 @@ Annotated disassembly
         14AE * 7A         MOV A,D
         14AF * BC         CMP H
         14B0 * C2 B6 14   JNZ L14B6
-        14B3   11 8D 4D   LXI D,4D8DH
+        14B3 * 11 8D 4D   LXI D,4D8DH
         L14B6:
         14B6 * E1         POP H
         14B7 * 0D         DCR C
@@ -3261,7 +3313,9 @@ Annotated disassembly
         ; 151E-1CAA  COMMAND INTERPRETER (SPC/1 DIALOG PROTOCOL) AND COMMAND HANDLERS
         ;   Command codes are looked up in the 128-entry table at 1CABh. Replies seen in the emulator:
         ;   60h = version string, 61h = function table dump, 6Dh = I/O configuration, 6Eh/6Fh/70h = module tables,
-        ;   1Eh = download, 20h = run control, 3Ah = restart, unknown codes reply 3Bh.
+        ;   1Eh = download (refused with status 1 while the program runs, 2 = block out of sequence),
+        ;   20h = run control (0 stop, 1 run, 2 restart), 3Ah = restart, unknown codes reply 3Bh.
+        ;   60h = reply: PLC state byte, 00H, version string, then the program name read from 8000H.
         ;============================================================================
 
         ;----------------------------------------------------------------------
@@ -3556,29 +3610,32 @@ Annotated disassembly
 
         ;----------------------------------------------------------------------
         ; cmd_download  (16D4H)
-        ;   Command 1Eh: program download block [1E][block no][more][data...];
-        ;   block 0 resets DL_PTR to 8000h; the last block (more = 0) sets
-        ;   PLC_STATE := 1.
+        ;   Command 1EH, download block [1E][block no][more][data...]. Refused
+        ;   with status 1 while PLC_STATE = 3. Block 0 sets PLC_STATE := 0 and
+        ;   DL_PTR := 8000H (a constant, 16EBH); other blocks need state 0 and
+        ;   the expected block number (else status 2). Copies LEN-4 bytes from
+        ;   CMD_BUF+4 to DL_PTR; more = 0 marks the last block and sets
+        ;   PLC_STATE := 1. Reply data: block no, more, status.
         ;----------------------------------------------------------------------
         cmd_download:
-        16D4 * 3A 02 4C   LDA PLC_STATE
+        16D4 * 3A 02 4C   LDA PLC_STATE              ; PLC_STATE
         16D7 * FE 03      CPI 03H
-        16D9 * CA 24 17   JZ L1724
-        16DC * 3A 8E 4C   LDA 4C8EH
+        16D9 * CA 24 17   JZ L1724                   ; running (3): refuse the download, status 1
+        16DC * 3A 8E 4C   LDA 4C8EH                  ; block number
         16DF * B7         ORA A
         16E0 * C2 F7 16   JNZ L16F7
-        16E3 * 3E 00      MVI A,00H
+        16E3 * 3E 00      MVI A,00H                  ; block 0 restarts the download
         16E5 * 32 FF 4B   STA DL_BLOCK_NO
-        16E8 * 32 02 4C   STA PLC_STATE
-        16EB * 21 00 80   LXI H,USER_PROG
+        16E8 * 32 02 4C   STA PLC_STATE              ; PLC_STATE := 0 (download in progress)
+        16EB * 21 00 80   LXI H,USER_PROG            ; download address 8000H (a constant)
         16EE * 22 00 4C   SHLD DL_PTR
         16F1 * CD 2E 17   CALL L172E
         16F4 * C3 0C 17   JMP L170C
         L16F7:
-        16F7 * 3A 02 4C   LDA PLC_STATE
+        16F7 * 3A 02 4C   LDA PLC_STATE              ; later blocks need state 0
         16FA * B7         ORA A
         16FB * C2 29 17   JNZ L1729
-        16FE * 3A FF 4B   LDA DL_BLOCK_NO
+        16FE * 3A FF 4B   LDA DL_BLOCK_NO            ; and the expected block number (4BFFH)
         1701 * 47         MOV B,A
         1702 * 3A 8E 4C   LDA 4C8EH
         1705 * B8         CMP B
@@ -3596,36 +3653,39 @@ Annotated disassembly
         171E * 22 0F 4D   SHLD 4D0FH
         1721 * C3 A2 1C   JMP L1CA2
         L1724:
-        1724   3E 01      MVI A,01H
-        1726   C3 0E 17   JMP L170E
+        1724 * 3E 01      MVI A,01H                  ; status 1: refused, the program is running
+        1726 * C3 0E 17   JMP L170E
         L1729:
-        1729   3E 02      MVI A,02H
-        172B   C3 0E 17   JMP L170E
+        1729 * 3E 02      MVI A,02H                  ; status 2: block out of sequence
+        172B * C3 0E 17   JMP L170E
         L172E:
-        172E * 3A FF 4B   LDA DL_BLOCK_NO
+        172E * 3A FF 4B   LDA DL_BLOCK_NO            ; count the block
         1731 * 3C         INR A
         1732 * 32 FF 4B   STA DL_BLOCK_NO
         1735 * 2A 00 4C   LHLD DL_PTR
         1738 * EB         XCHG
         1739 * 21 90 4C   LXI H,4C90H
-        173C * 3A 8C 4C   LDA CMD_BUF
+        173C * 3A 8C 4C   LDA CMD_BUF                ; data length := LEN - 4
         173F * D6 04      SUI 04H
         1741 * 4F         MOV C,A
-        1742 * CD C4 13   CALL memcpy_c
+        1742 * CD C4 13   CALL memcpy_c              ; copy the block to the download pointer
         1745 * EB         XCHG
         1746 * 22 00 4C   SHLD DL_PTR
         1749 * 3A 8F 4C   LDA 4C8FH
         174C * B7         ORA A
         174D * C2 55 17   JNZ L1755
-        1750 * 3E 01      MVI A,01H
+        1750 * 3E 01      MVI A,01H                  ; more = 0: last block, PLC_STATE := 1
         1752 * 32 02 4C   STA PLC_STATE
         L1755:
         1755 * C9         RET
 
         ;----------------------------------------------------------------------
         ; cmd_run_control  (1756H)
-        ;   Command 20h: 0 = stop, 1 = run (runs the loader 2359h first), 2 =
-        ;   restart the system.
+        ;   Command 20H: argument 0 = stop (state 2), 1 = run (the loader at
+        ;   2359H relocates the program in place, state 3; refused when no
+        ;   program is loaded or the loader fails), 2 = restart the system (JMP
+        ;   0000H). PLC_STATE: 0 none or download in progress, 1 loaded, 2
+        ;   stopped, 3 running.
         ;----------------------------------------------------------------------
         cmd_run_control:
         1756 * 3A 8E 4C   LDA 4C8EH
@@ -3672,8 +3732,8 @@ Annotated disassembly
         17AB   3E 02      MVI A,02H
         17AD   C3 90 17   JMP L1790
         L17B0:
-        17B0   3E 03      MVI A,03H
-        17B2   C3 90 17   JMP L1790
+        17B0 * 3E 03      MVI A,03H
+        17B2 * C3 90 17   JMP L1790
 
         ;----------------------------------------------------------------------
         ; cmd_34_5F  (17B5H)
@@ -3704,7 +3764,7 @@ Annotated disassembly
         ;   Command 3Ah: restart the system (JMP 0000h).
         ;----------------------------------------------------------------------
         cmd_restart:
-        17E3   C3 00 00   JMP reset
+        17E3 * C3 00 00   JMP reset
 
         ;----------------------------------------------------------------------
         ; cmd_illegal  (17E6H)
@@ -4137,7 +4197,9 @@ Annotated disassembly
 
         ;----------------------------------------------------------------------
         ; cmd_version  (1B00H)
-        ;   Command 60h: reply carries the version string 88.03.14.
+        ;   Command 60H: reply data = PLC state byte, 00H, the 8-byte version
+        ;   string from 1211H, then the program name copied from 8000H (zero
+        ;   terminated, at most 40 bytes).
         ;----------------------------------------------------------------------
         cmd_version:
         1B00 * 3E 00      MVI A,00H
@@ -4145,14 +4207,14 @@ Annotated disassembly
         1B05 * 32 10 4D   STA 4D10H
         1B08 * 3E 0C      MVI A,0CH
         1B0A * 32 0D 4D   STA REPLY_BUF
-        1B0D * 3A 02 4C   LDA PLC_STATE
+        1B0D * 3A 02 4C   LDA PLC_STATE              ; first data byte of the reply: the PLC state
         1B10 * 32 0F 4D   STA 4D0FH
         1B13 * 11 11 4D   LXI D,4D11H
-        1B16 * 21 11 12   LXI H,1211H
+        1B16 * 21 11 12   LXI H,1211H                ; copy the 8-byte version string
         1B19 * 0E 08      MVI C,08H
         1B1B * CD C4 13   CALL memcpy_c
         1B1E * 01 19 4D   LXI B,4D19H
-        1B21 * 11 00 80   LXI D,USER_PROG
+        1B21 * 11 00 80   LXI D,USER_PROG            ; copy the program name from 8000H (zero terminated, at most 40 bytes)
         1B24 * 2E 00      MVI L,00H
         L1B26:
         1B26 * 1A         LDAX D
@@ -4162,9 +4224,9 @@ Annotated disassembly
         1B2A * 13         INX D
         1B2B * FE 00      CPI 00H
         1B2D * CA 36 1B   JZ L1B36
-        1B30   7D         MOV A,L
-        1B31   FE 28      CPI 28H
-        1B33   DA 26 1B   JC L1B26
+        1B30 * 7D         MOV A,L
+        1B31 * FE 28      CPI 28H
+        1B33 * DA 26 1B   JC L1B26
         L1B36:
         1B36 * 3A 0D 4D   LDA REPLY_BUF
         1B39 * 85         ADD L
@@ -4740,7 +4802,7 @@ Annotated disassembly
         1EDF * 7A         MOV A,D
         1EE0 * BC         CMP H
         1EE1 * C2 E7 1E   JNZ L1EE7
-        1EE4   11 8D 4D   LXI D,4D8DH
+        1EE4 * 11 8D 4D   LXI D,4D8DH
         L1EE7:
         1EE7 * EB         XCHG
         1EE8 * D1         POP D
@@ -5511,8 +5573,8 @@ Annotated disassembly
         236F * 23         INX H
         2370 * 0D         DCR C
         2371 * C2 69 23   JNZ L2369
-        2374   3E 02      MVI A,02H
-        2376   C3 13 24   JMP L2413
+        2374 * 3E 02      MVI A,02H
+        2376 * C3 13 24   JMP L2413
         L2379:
         2379 * D5         PUSH D
         237A * 23         INX H
@@ -5772,17 +5834,17 @@ Annotated disassembly
         ;============================================================================
         ; 24F3-27FF  UTILITIES: HEX PARSE/PRINT, CRC, ROM STATION ADDRESS
         ;============================================================================
-        24F3   67         MOV H,A
-        24F4   C3 DF 24   JMP L24DF
+        24F3 * 67         MOV H,A
+        24F4 * C3 DF 24   JMP L24DF
         L24F7:
-        24F7   6F         MOV L,A
-        24F8   C9         RET
+        24F7 * 6F         MOV L,A
+        24F8 * C9         RET
         L24F9:
-        24F9   D6 30      SUI 30H
-        24FB   FE 0A      CPI 0AH
-        24FD   D8         RC
-        24FE   D6 07      SUI 07H
-        2500   C9         RET
+        24F9 * D6 30      SUI 30H
+        24FB * FE 0A      CPI 0AH
+        24FD * D8         RC
+        24FE * D6 07      SUI 07H
+        2500 * C9         RET
         2501 ? 7A         MOV A,D
         2502 ? CD 12 25   CALL L2512
         2505 ? 7A         MOV A,D
@@ -6470,7 +6532,7 @@ Annotated disassembly
         2900   B2         ORA D
         2901   CA 1E 29   JZ L291E
         2904   E5         PUSH H
-        2905   2A 00 40   LHLD 4000H
+        2905   2A 00 40   LHLD UPTIME
         2908   CD BB 37   CALL L37BB
         290B   EB         XCHG
         290C   19         DAD D
@@ -6518,7 +6580,7 @@ Annotated disassembly
         293F   D1         POP D
         2940   19         DAD D
         2941   EB         XCHG
-        2942   2A 00 40   LHLD 4000H
+        2942   2A 00 40   LHLD UPTIME
         2945   19         DAD D
         2946   7C         MOV A,H
         2947   B5         ORA L
@@ -6568,7 +6630,7 @@ Annotated disassembly
         2972   B2         ORA D
         2973   CA 90 29   JZ L2990
         2976   E5         PUSH H
-        2977   2A 00 40   LHLD 4000H
+        2977   2A 00 40   LHLD UPTIME
         297A   CD BB 37   CALL L37BB
         297D   EB         XCHG
         297E   19         DAD D
@@ -6605,7 +6667,7 @@ Annotated disassembly
         L29A7:
         29A7   21 14 00   LXI H,0014H
         29AA   CD 46 38   CALL L3846
-        29AD   2A 00 40   LHLD 4000H
+        29AD   2A 00 40   LHLD UPTIME
         29B0   19         DAD D
         29B1   7C         MOV A,H
         29B2   B5         ORA L
@@ -6929,7 +6991,7 @@ Annotated disassembly
         2B6D   CD 75 37   CALL L3775
         2B70   C5         PUSH B
         2B71   CD 75 37   CALL L3775
-        2B74   2A 00 40   LHLD 4000H
+        2B74   2A 00 40   LHLD UPTIME
         2B77   7D         MOV A,L
         2B78   02         STAX B
         2B79   03         INX B
@@ -8069,7 +8131,7 @@ Annotated disassembly
         3234   11 04 00   LXI D,0004H
         3237   19         DAD D
         3238   EB         XCHG
-        3239   2A 00 40   LHLD 4000H
+        3239   2A 00 40   LHLD UPTIME
         323C   EB         XCHG
         323D   73         MOV M,E
         323E   23         INX H
@@ -8096,7 +8158,7 @@ Annotated disassembly
         325D   5E         MOV E,M
         325E   23         INX H
         325F   56         MOV D,M
-        3260   2A 00 40   LHLD 4000H
+        3260   2A 00 40   LHLD UPTIME
         3263   CD BB 37   CALL L37BB
         3266   EB         XCHG
         3267   19         DAD D
@@ -8115,7 +8177,7 @@ Annotated disassembly
         327D   5E         MOV E,M
         327E   23         INX H
         327F   56         MOV D,M
-        3280   2A 00 40   LHLD 4000H
+        3280   2A 00 40   LHLD UPTIME
         3283   19         DAD D
         3284   EB         XCHG
         3285   E1         POP H
@@ -8857,7 +8919,7 @@ Annotated disassembly
         374B   5E         MOV E,M
         374C   23         INX H
         374D   56         MOV D,M
-        374E   2A 00 40   LHLD 4000H
+        374E   2A 00 40   LHLD UPTIME
         3751   19         DAD D
         3752   EB         XCHG
         3753   E1         POP H
@@ -10833,5 +10895,3 @@ Annotated disassembly
         3FFE ? 63         MOV H,E
         3FFF ? 63         MOV H,E
                 END
-
-
