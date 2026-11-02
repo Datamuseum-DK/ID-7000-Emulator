@@ -825,6 +825,82 @@ Calling convention (inferred from the entry code):
 What each function block does (timer, counter, arithmetic, ...) has not been
 determined.
 
+.. _run-sequence:
+
+Exact sequence to run a downloaded program
+------------------------------------------
+
+Verified in the emulator against the ROM handler at ``1756h``-``17AFh``.
+
+1. **Open the link.** The first frame only triggers the start-up announcement;
+   whatever command it carries is discarded. Send a throw-away frame first
+   (``AuxHost.connect()``). Without it block 0 is lost, the next block is answered
+   with status 2 (out of sequence), ``PLC_STATE`` stays 0 and ``20h`` 1 answers
+   status 3.
+2. **Download** with ``1Eh`` ``[block][more][data]``: blocks numbered from 0 with
+   no gaps, the data starting at ``8000h`` (32 bytes per block is safe), ``more`` = 1
+   on every block except the last, which must carry ``more`` = 0. Only that last
+   block sets ``PLC_STATE`` (4C02h) to 1. If the last block still has ``more`` = 1
+   the state stays 0 and the run command fails. Check that the last reply ends
+   ``00 00`` (status 0).
+3. **Run** with ``20h`` and argument 1: sub-message ``[03][20][01]``. The handler
+   (``1756h``):
+
+   * argument 2: jump to ``0000h`` (full restart); argument 3 or more: status 2;
+   * state 0 (nothing loaded): status 3;
+   * state 1 (loaded): call the loader ``2359h``; if it returns non-zero the reply
+     is status 3 and the state **stays 1**; otherwise state becomes 2;
+   * then, if the requested run bit equals the current one, status 1 (nothing
+     changed); otherwise bit 0 of the state is toggled (2 to 3 on run, 3 to 2 on
+     stop) and the reply status is 0.
+
+   The reply sub-message is ``20h`` with data ``[argument][status]``. Status
+   0 = done, 1 = already in that state, 2 = bad argument, 3 = nothing loaded or the
+   loader rejected the program.
+4. **Confirm** by reading ``PLC_STATE`` = 3, not only the reply. A reply with
+   status 3 is *not* an acknowledgement that the program runs.
+
+Observed replies (reply data after the ``20h`` code):
+
+.. list-table::
+   :header-rows: 1
+
+   * - Situation
+     - ``20h`` reply data
+     - ``PLC_STATE`` afterwards
+   * - PLC-format program, fully downloaded, ``20h 01``
+     - ``01 00``
+     - 3
+   * - Same, ``20h 01`` repeated
+     - ``01 01``
+     - 3
+   * - ``20h 00`` while running
+     - ``00 00``
+     - 2
+   * - ``20h 00`` right after download (loader runs first)
+     - ``00 01``
+     - 2
+   * - Plain 8080 program (for example ``fib.hex``), ``20h 01``
+     - ``01 03`` (loader rejects it)
+     - 1
+   * - Nothing loaded, ``20h 01``
+     - ``01 03``
+     - 0
+   * - Download not finished (last block ``more`` = 1)
+     - ``01 03``
+     - 0
+   * - Argument 3
+     - ``03 02``
+     - unchanged
+
+**Most likely reason a ``20h`` appears to do nothing:** the downloaded image is an
+ordinary 8080 program. Command ``20h`` only starts *PLC-format* code that the
+loader can relocate (see the loader description above). An ordinary program, such as the Fibonacci
+process, is rejected with status 3 and the state stays 1. Start such a program
+with the ``P`` operator command (priority 1-3, address ``807Ch``) instead. A
+download never starts a program by itself, and ``20h`` 1 while the state is 3
+only answers status 1.
+
 Open questions
 --------------
 

@@ -418,6 +418,56 @@ download and run, analog value, version string, the ``D`` debugger entry and
 return, pause and help, and the Fibonacci process loaded with ``L`` and started
 with ``P``. It prints one ``ok`` line per check and takes a few minutes.
 
+Running a loaded program (``20h``)
+----------------------------------
+
+Command ``20h`` starts a program that was downloaded with ``1Eh``. It only works
+for **PLC-format** code (see :ref:`run-sequence` in the IPC/1 reference). The exact
+sequence, verified against the ROM handler at ``1756h``:
+
+1. ``connect()``: the first frame only triggers the start-up reply and its command
+   is discarded.
+2. ``1Eh`` ``[block][more][data]``: blocks numbered from 0 without gaps, 32 bytes
+   each, ``more`` = 1 on every block except the last, which carries ``more`` = 0.
+   Only the last block sets ``PLC_STATE`` (4C02h) to 1.
+3. ``20h`` with argument 1.
+4. Check that ``PLC_STATE`` is 3.
+
+.. code-block:: python
+
+   from machine import Machine, attach_analog
+   from aux import AuxHost
+   m = Machine(); attach_analog(m); m.run(2_000_000); m.take()
+   h = AuxHost(m)
+   h.connect()                                   # step 1
+   image = bytes(0x7C) + bytes([0x21,0,0x20, 0x7E, 0x21,0,0x10, 0x77, 0xC9])
+   blocks = [image[i:i+32] for i in range(0, len(image), 32)]
+   for n, b in enumerate(blocks):                # step 2
+       h.command(0x1E, n, 0 if n == len(blocks) - 1 else 1, *b)
+   print(h.command(0x20, 1), m.bus.ram[0x4C02])  # steps 3-4: reply data 01 00, state 3
+
+The reply data of ``20h`` is ``[argument][status]``:
+
+.. list-table::
+   :header-rows: 1
+
+   * - Status
+     - Meaning
+   * - 0
+     - Done.
+   * - 1
+     - Already in that state (for example ``20h 01`` while running).
+   * - 2
+     - Bad argument (3 or more).
+   * - 3
+     - Nothing loaded, download unfinished, or the loader rejected the program.
+
+A reply of ``01 03`` means the program is **not** running. The usual cause is an
+ordinary 8080 program (such as ``examples/fib.hex``), which the loader rejects and
+leaves in state 1. Start such programs with the ``P`` command at ``807Ch``
+instead (priority 1-3). In the front end, ``Ctrl-]`` ``r`` runs and ``Ctrl-]`` ``x``
+stops; the status bar now shows the reply status and the PLC state.
+
 Troubleshooting
 ---------------
 
@@ -441,6 +491,11 @@ The Esc key feels slow
 ``download refused: the PLC program is running``
    The ROM refuses a download in state 3. Stop the program first (``Ctrl-]`` ``x``).
    Commands are also only answered after the first frame (``connect()``).
+
+``20h`` replies ``01 03`` and the program does not run
+   The loader rejected the image or nothing is loaded. Check the download (last block
+   ``more`` = 0, ``connect()`` first) and that the code is PLC-format; ordinary 8080
+   programs are started with ``P``. See "Running a loaded program (``20h``)" above.
 
 The Fibonacci numbers change every five seconds
    The ticks per second are not 500. Run with ``--tick-hz 500`` or change
