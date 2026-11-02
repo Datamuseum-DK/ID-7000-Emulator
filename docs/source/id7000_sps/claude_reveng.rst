@@ -784,12 +784,6 @@ The loader works as follows:
   function *n* from the table at ``4BD3h`` (the RAM copy of ``2800h``).
   An unresolved number is an error.
 * ``JMP``/``JZ``/``JNZ`` operands are relative and become absolute.
-* Opcodes tested as accepted: ``LXI H``, ``CMA``, ``MVI A``, ``MOV B,A``,
-  ``MOV D,L``, ``MOV M,A``, ``MOV A,B``, ``MOV A,M``, ``ANA B``, ``ANA M``,
-  ``ORA B``, ``ORA M``, ``RNZ``, ``RZ``, ``JNZ``, ``JMP``, ``JZ``, ``RET``,
-  ``ANI``, ``POP PSW``, ``PUSH PSW`` and ``CALL``. Other opcodes made the
-  loader report an error in my tests.
-
 * **The scan ends at the first** ``RET``. The loader relocates opcodes in a
   straight line and returns success (``A`` = 0) when it reaches a ``C9``. Bytes after
   that ``RET`` are never examined or changed. A ``JMP`` is relocated to an absolute
@@ -797,7 +791,148 @@ The loader works as follows:
   8080 code that the loader would otherwise reject. ``examples/fib_plc.asm`` uses this
   to run a Fibonacci program from the PLC cycle. This is an observed property of the
   loader, not a documented interface; the code after the ``RET`` must use absolute
-  addresses only and must return to the PLC cycle quickly.
+  addresses only and must return to the PLC cycle quickly. If the scanned part contains
+  a ``CALL n``, the loader also runs a second pass (``2418h``) at each jump; the
+  ``JMP``-over-``RET`` trick has only been tested without ``CALL n``.
+
+* **The accepted opcodes are listed in a table in the ROM** (next section). Any
+  other opcode makes the loader return an error (``A`` = 2).
+
+The loader opcode table (``24B0h``)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The set of opcodes the loader accepts is a table at ``24B0h``-``24DCh``. The loader
+reads it with ``LXI H,24B0h`` (at ``2362h``). The byte at ``24B0h`` is the entry count
+(``16h`` = 22), followed by 22 entries of two bytes each, ``[opcode][length]``, where
+the length is the instruction length in bytes (the loader uses it to step to the next
+instruction). The loader compares each program byte with the opcode of every entry;
+a byte that is in no entry ends the load with ``A`` = 2. The table does not say what the
+loader does to an opcode: that is coded in the loader (only ``LXI H``, ``CALL`` and the
+three jumps are changed, the others are left as they are).
+
+.. list-table::
+   :header-rows: 1
+   :widths: 12 10 10 18 50
+
+   * - Address
+     - Opcode
+     - Length
+     - Instruction
+     - Loader action
+   * - ``24B1h``
+     - ``C9``
+     - 1
+     - ``RET``
+     - Ends the first pass: the loader returns 0 (success).
+   * - ``24B3h``
+     - ``2F``
+     - 1
+     - ``CMA``
+     - Copied.
+   * - ``24B5h``
+     - ``C3``
+     - 3
+     - ``JMP``
+     - Operand is relative; made absolute.
+   * - ``24B7h``
+     - ``E6``
+     - 2
+     - ``ANI``
+     - Copied.
+   * - ``24B9h``
+     - ``C2``
+     - 3
+     - ``JNZ``
+     - Operand is relative; made absolute.
+   * - ``24BBh``
+     - ``CA``
+     - 3
+     - ``JZ``
+     - Operand is relative; made absolute.
+   * - ``24BDh``
+     - ``F5``
+     - 1
+     - ``PUSH PSW``
+     - Copied.
+   * - ``24BFh``
+     - ``F1``
+     - 1
+     - ``POP PSW``
+     - Copied.
+   * - ``24C1h``
+     - ``3E``
+     - 2
+     - ``MVI A,n``
+     - Copied.
+   * - ``24C3h``
+     - ``21``
+     - 3
+     - ``LXI H``
+     - Segment nibble and 12-bit offset become an image address (table at ``4BB4h``).
+   * - ``24C5h``
+     - ``7E``
+     - 1
+     - ``MOV A,M``
+     - Copied.
+   * - ``24C7h``
+     - ``47``
+     - 1
+     - ``MOV B,A``
+     - Copied.
+   * - ``24C9h``
+     - ``B0``
+     - 1
+     - ``ORA B``
+     - Copied.
+   * - ``24CBh``
+     - ``77``
+     - 1
+     - ``MOV M,A``
+     - Copied.
+   * - ``24CDh``
+     - ``78``
+     - 1
+     - ``MOV A,B``
+     - Copied.
+   * - ``24CFh``
+     - ``A6``
+     - 1
+     - ``ANA M``
+     - Copied.
+   * - ``24D1h``
+     - ``B6``
+     - 1
+     - ``ORA M``
+     - Copied.
+   * - ``24D3h``
+     - ``CD``
+     - 3
+     - ``CALL n``
+     - Operand is a function number; replaced by the entry from the table at ``4BD3h``. Unresolved: the loader returns 1.
+   * - ``24D5h``
+     - ``A0``
+     - 1
+     - ``ANA B``
+     - Copied.
+   * - ``24D7h``
+     - ``55``
+     - 1
+     - ``MOV D,L``
+     - Copied.
+   * - ``24D9h``
+     - ``C0``
+     - 1
+     - ``RNZ``
+     - Copied.
+   * - ``24DBh``
+     - ``C8``
+     - 1
+     - ``RZ``
+     - Copied.
+
+In the annotated listing the table is the labelled data block ``loader_opcode_table``.
+The code that follows it at ``24DDh`` is not part of the table: it is ``parse_hex``
+(four ASCII hex digits at ``(DE)`` into ``HL``, used by the ``P`` command).
 
 This is boolean-logic code: load a point address, read the byte, combine,
 store it back. A tested program that copies input point 0 to output point 0 is:
@@ -990,6 +1125,10 @@ Appendix: key addresses
      - Digital output scan
    * - ``2359h``
      - Program loader
+   * - ``24B0h``
+     - Loader opcode table (count, then 22 x [opcode][length])
+   * - ``24DDh``
+     - ``parse_hex``: four hex digits at (DE) into HL
    * - ``253Dh``
      - CRC update
    * - ``2556h``

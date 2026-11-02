@@ -1,11 +1,11 @@
-
+ 
 Annotated disassembly
 =====================
 
 .. include:: ../claude_warning.rst
 
 .. code-block:: text
- 
+
         ; ===========================================================================
         ; ID-7000  IPC/1 + SPC/1  (SPS_1-5 + FUNK_1-3)  --  annotated 8080 disassembly
         ; Image  : SPS_1..5_5_890505_ADR_255 then FUNK_1..3_3_881229, 16384 bytes at 0000H
@@ -5805,41 +5805,79 @@ Annotated disassembly
         24AD   C3 27 24   JMP L2427
 
         ;============================================================================
-        ; 24B0-24F2  LOADER OPCODE TABLE (COUNT, THEN 3 BYTES PER ENTRY - STRUCTURE NOT FULLY DECODED)
+        ; 24B0-24DC  LOADER OPCODE TABLE
+        ;   24B0         entry count (22)
+        ;   24B1-24DC    22 entries of [opcode][length in bytes]
+        ;   Read by program_loader (2359H, "LXI H,24B0H" at 2362H). The loader compares each program
+        ;   byte with the opcode of every entry; on a match it steps over the instruction by the
+        ;   length of that entry. A byte that is in no entry makes the loader return A=2 (bad opcode).
+        ;   Nothing in the table selects what the loader does to an opcode: that is hard-coded in
+        ;   the loader (LXI H, CALL and the three jumps are relocated; the rest are copied as is).
         ;============================================================================
-        24B0            DB   16H
-        24B1            DB   C9H,01H,2FH
-        24B4            DB   01H,C3H,03H
-        24B7            DB   E6H,02H,C2H
-        24BA            DB   03H,CAH,03H
-        24BD            DB   F5H,01H,F1H
-        24C0            DB   01H,3EH,02H
-        24C3            DB   21H,03H,7EH
-        24C6            DB   01H,47H,01H
-        24C9            DB   B0H,01H,77H
-        24CC            DB   01H,78H,01H
-        24CF            DB   A6H,01H,B6H
-        24D2            DB   01H,CDH,03H
-        24D5            DB   A0H,01H,55H
-        24D8            DB   01H,C0H,01H
-        24DB            DB   C8H,01H,06H
-        24DE            DB   02H,1AH,CDH
-        24E1            DB   F9H,24H,07H
-        24E4            DB   07H,07H,07H
-        24E7            DB   4FH,13H,1AH
-        24EA            DB   CDH,F9H,24H
-        24ED            DB   B1H,13H,05H
-        24F0            DB   CAH,F7H,24H
+        loader_opcode_table:
+        24B0            DB   16H                     ; 22 entries
+        24B1            DB   C9H,01H              ; RET      - ends the scan: the loader returns A=0
+        24B3            DB   2FH,01H              ; CMA     
+        24B5            DB   C3H,03H              ; JMP      - operand relative -> absolute
+        24B7            DB   E6H,02H              ; ANI     
+        24B9            DB   C2H,03H              ; JNZ      - operand relative -> absolute
+        24BB            DB   CAH,03H              ; JZ       - operand relative -> absolute
+        24BD            DB   F5H,01H              ; PUSH PSW
+        24BF            DB   F1H,01H              ; POP PSW 
+        24C1            DB   3EH,02H              ; MVI A   
+        24C3            DB   21H,03H              ; LXI H    - segment nibble + 12-bit offset -> image address
+        24C5            DB   7EH,01H              ; MOV A,M 
+        24C7            DB   47H,01H              ; MOV B,A 
+        24C9            DB   B0H,01H              ; ORA B   
+        24CB            DB   77H,01H              ; MOV M,A 
+        24CD            DB   78H,01H              ; MOV A,B 
+        24CF            DB   A6H,01H              ; ANA M   
+        24D1            DB   B6H,01H              ; ORA M   
+        24D3            DB   CDH,03H              ; CALL     - operand is a function number, resolved via the table at 4BD3H
+        24D5            DB   A0H,01H              ; ANA B   
+        24D7            DB   55H,01H              ; MOV D,L 
+        24D9            DB   C0H,01H              ; RNZ     
+        24DB            DB   C8H,01H              ; RZ      
 
         ;============================================================================
-        ; 24F3-27FF  UTILITIES: HEX PARSE/PRINT, CRC, ROM STATION ADDRESS
+        ; 24DD-27FF  UTILITIES: HEX PARSE/PRINT, CRC, ROM STATION ADDRESS
         ;============================================================================
-        24F3 * 67         MOV H,A
+
+        ;----------------------------------------------------------------------
+        ; parse_hex  (24DDH)
+        ;   Read four ASCII hex digits at (DE), most significant first, into HL. DE moves past
+        ;   the digits. A non-hex digit is not checked. Called by the P command (0A68H) for the
+        ;   start address of a new process.
+        ;----------------------------------------------------------------------
+        parse_hex:
+        24DD * 06 02      MVI B,02H                  ; two bytes
+        L24DF:
+        24DF * 1A         LDAX D
+        24E0 * CD F9 24   CALL hex_digit
+        24E3 * 07         RLC
+        24E4 * 07         RLC
+        24E5 * 07         RLC
+        24E6 * 07         RLC                        ; digit to the high nibble
+        24E7 * 4F         MOV C,A
+        24E8 * 13         INX D
+        24E9 * 1A         LDAX D
+        24EA * CD F9 24   CALL hex_digit
+        24ED * B1         ORA C                      ; A = one byte
+        24EE * 13         INX D
+        24EF * 05         DCR B
+        24F0 * CA F7 24   JZ L24F7                   ; second byte done: it goes to L
+        24F3 * 67         MOV H,A                    ; first byte goes to H
         24F4 * C3 DF 24   JMP L24DF
         L24F7:
         24F7 * 6F         MOV L,A
         24F8 * C9         RET
-        L24F9:
+
+        ;----------------------------------------------------------------------
+        ; hex_digit  (24F9H)
+        ;   ASCII hex digit in A -> value 0-0FH (digits and upper case A-F). No validation: a character
+        ;   below '0' or above 'F' gives a meaningless value.
+        ;----------------------------------------------------------------------
+        hex_digit:
         24F9 * D6 30      SUI 30H
         24FB * FE 0A      CPI 0AH
         24FD * D8         RC
