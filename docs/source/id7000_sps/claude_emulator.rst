@@ -55,10 +55,12 @@ Files
      - 8080 assembler for your own processes
    * - ``interactive.py``
      - Curses front end
-   * - ``demo_console.py``, ``demo_plc.py``, ``demo_fib.py``
+   * - ``demo_console.py``, ``demo_plc.py``, ``demo_fib.py``, ``demo_fib_plc.py``
      - Demo scripts
    * - ``examples/fib.asm``, ``fib.hex``, ``fib.bin``
      - The Fibonacci example process, as source and assembled
+   * - ``examples/fib_plc.asm``, ``fib_plc.hex``, ``fib_plc.bin``
+     - The Fibonacci PLC program (load with ``1Eh``, start with ``20h 01``)
 
 Quick start
 -----------
@@ -146,6 +148,41 @@ Assembles ``examples/fib.asm``, downloads it over the aux link, starts it with t
 The ``0001`` appears twice in the sequence (0, 1, 1, 2), which is why 2.00 s pass
 before the text changes to ``0002``. The last line shows that the process does not
 disturb the OS clock.
+
+demo_fib_plc.py
+~~~~~~~~~~~~~~~
+
+The Fibonacci sequence as a **PLC program**: it is downloaded with ``1Eh`` and started
+with ``20h 01``, with no ``P`` command. It assembles ``examples/fib_plc.asm``, runs the
+timer at 500 ticks per second and prints each new value at ``7100h``.
+
+.. code-block:: console
+
+   python3 demo_fib_plc.py 10
+
+.. code-block:: text
+
+   download  -> [(121, b'\x00'), (30, b'\x08\x00\x00')] | PLC_STATE = 1 (1 = loaded)
+   run 20h 1 -> [(121, b'\x00'), (32, b'\x01\x00')] | PLC_STATE = 3 (3 = running)
+     0.0 s  7100h = 0000
+     0.3 s  7100h = 0001
+     2.3 s  7100h = 0002      (0001 appears twice in the sequence, hence the 2 s gap)
+     3.3 s  7100h = 0003
+     ...
+
+The PLC cycle calls the program once per cycle, so the program returns at once and
+only does work when about one second has passed (``UPTIME`` at ``4000h`` against a
+stored due time). The state variables are part of the image, so a new download starts
+the sequence again, while ``20h 00`` followed by ``20h 01`` continues it. In the front
+end: ``Ctrl-]`` ``L``, file ``examples/fib_plc.hex``, then ``Ctrl-]`` ``r``; start it with
+``--tick-hz 500`` to get one number per second (at the default 100 ticks per second
+it is one per five seconds). Read ``7100h`` with ``Ctrl-]`` ``i`` or the debugger.
+
+The loader accepts only a small PLC opcode set (no ``ADD``, no ``INX``), so the program
+uses a property of the loader, described in the IPC/1 reference: the loader stops
+scanning at the first ``RET``. The program is ``JMP MAIN`` and ``RET`` followed by ordinary
+8080 code. Because ``MAIN`` and everything after the first ``RET`` is never relocated, the
+code must not contain a ``CALL n`` function number or an ``LXI H`` segment address.
 
 The interactive front end
 -------------------------

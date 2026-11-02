@@ -790,6 +790,15 @@ The loader works as follows:
   ``ANI``, ``POP PSW``, ``PUSH PSW`` and ``CALL``. Other opcodes made the
   loader report an error in my tests.
 
+* **The scan ends at the first** ``RET``. The loader relocates opcodes in a
+  straight line and returns success (``A`` = 0) when it reaches a ``C9``. Bytes after
+  that ``RET`` are never examined or changed. A ``JMP`` is relocated to an absolute
+  address (operand address + offset), so ``JMP`` over the first ``RET`` reaches ordinary
+  8080 code that the loader would otherwise reject. ``examples/fib_plc.asm`` uses this
+  to run a Fibonacci program from the PLC cycle. This is an observed property of the
+  loader, not a documented interface; the code after the ``RET`` must use absolute
+  addresses only and must return to the PLC cycle quickly.
+
 This is boolean-logic code: load a point address, read the byte, combine,
 store it back. A tested program that copies input point 0 to output point 0 is:
 
