@@ -39,7 +39,9 @@ def frame(payload,order='hl'):
     out=bytes([FLAG])
     for b in body+tail:
         out+=stuff(b)
-    return out+bytes([FLAG])
+    res = out+bytes([FLAG])
+    print(res)
+    return res
 
 def unframe(b):
     """Split bytes sent by the terminal into frames (undo 40h-stuffing, drop flags)."""
