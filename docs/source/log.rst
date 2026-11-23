@@ -505,3 +505,22 @@ This should really be the default behaviour.
 **Documentation**
 
 Using includes to declarate Claude usage.
+
+
+2026 11 23
+----------
+
+**ID-7000 A**
+
+Added a fake CDC Cyber 170 host and support for multiple simultaneous console sessions.
+
+This is probably more or less what this ID7000 was used for. Here is an example with 
+two sessions over the asynchronous link./USART. One (left terminal) probing internal ID7000 commands and one (right) communicating
+with the CDC Cyber over the synchronous link/USART.
+
+
+.. figure:: id7000_a/images/cyberlink.png
+  :width: 800
+  :align: center
+
+  Two simultaneous console sessions.
