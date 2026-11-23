@@ -22,24 +22,18 @@ def frame(addr,dev,ctl,data=b''):
     return bytes([SYN,SYN,SYN,SOH])+body+bytes([l&0x7F])
 
 def attach(m,s):
-    """Wire the sync 8251 into machine m and make Machine.run raise RST 4 while TxEN."""
+    """Wire the sync 8251 into machine m; Machine.run then raises RST 4 while TxEN."""
     b=m.bus
     b.in_handlers[0xA0]=lambda p:s.data_r(); b.in_handlers[0xA1]=lambda p:s.status()
     b.out_handlers[0xA0]=lambda p,v:s.data_w(v); b.out_handlers[0xA1]=lambda p,v:s.ctrl_w(v)
-    def run(n):
-        c=m.cpu
-        for _ in range(n):
-            c.step(); m.steps+=1
-            if m.steps%m.TICK==0: c.interrupt(3)
-            elif s.txen and m.steps%64==0 and c.pending_irq is None: c.interrupt(4)
-    m.run=run
+    m.sync=s
 
 class CyberHost:
     """Stub host: sends frames to the terminal and decodes its replies."""
     def __init__(self,m,s): self.m=m; self.s=s
     def _send(self,f,steps=3000):
         for byte in f:
-            self.s.rx.append(byte); self.m.cpu.interrupt(2); self.m.run(steps)
+            self.s.rx.append(byte); self.m.irq(2); self.m.run(steps)
         self.m.run(300000)
     def exchange(self,addr,dev,ctl,data=b''):
         self.s.tx.clear(); self._send(frame(addr,dev,ctl,data))

@@ -53,13 +53,21 @@ def clean(data):
     return ''.join(out).strip()
 
 class CyberOS:
-    """A very small NOS-flavoured command interpreter."""
+    """A very small NOS-flavoured command interpreter.
+
+    A session starts logged out: the only command accepted is
+        LOGIN USER,PASSWORD      (password = user name, e.g. LOGIN ALICE,ALICE)
+    BYE/LOGOUT returns to the logged-out state."""
+    LOGGED_OUT_OK = ('LOGIN',)
+
     FILES = {'HELLO': 'PROGRAM HELLO\n  PRINT *, \'HELLO FROM THE CYBER\'\n  END',
              'README': 'THIS IS A SIMULATED CDC CYBER HOST.\nTYPE HELP FOR COMMANDS.',
              'JOBLOG': '10.00.00 JOB STARTED\n10.00.01 JOB ENDED'}
 
     def __init__(self, name='CYBER 170'):
-        self.name = name; self.user = None; self.lines = 0
+        self.name = name;
+        self.user = None;
+        self.lines = 0
         self.started = time.time()
 
     def banner(self):
@@ -72,20 +80,32 @@ class CyberOS:
         self.lines += 1
         verb, _, arg = line.replace(',', ' ').partition(' ')
         arg = arg.strip()
+        if self.user is None and verb not in self.LOGGED_OUT_OK:
+            return ' NOT LOGGED IN. TYPE LOGIN USER,PASSWORD'
         f = getattr(self, 'cmd_' + verb, None)
         return f(arg) if f else f' ILLEGAL COMMAND: {verb}'
 
     def cmd_HELP(self, a):
-        return ('COMMANDS:\n HELLO/LOGIN [USER]  BYE/LOGOUT  DATE  TIME\n'
+        return ('COMMANDS:\n LOGIN USER,PASSWORD  BYE/LOGOUT  DATE  TIME\n'
                 ' ECHO TEXT  CATLIST  LIST FILE  STATUS  HELP')
-    def cmd_HELLO(self, a):
-        self.user = a or 'GUEST'
+    @staticmethod
+    def check_password(user, password):
+        return password == user
+    
+    def cmd_LOGIN(self, a):
+        user, _, password = a.partition(' ')
+        password = password.strip()
+        if not user or not password: return ' USAGE: LOGIN USER,PASSWORD'
+        if not self.check_password(user, password): return ' IMPROPER PASSWORD.'
+        self.user = user
         return f'{self.banner()}\nUSER {self.user} LOGGED IN.'
-    cmd_LOGIN = cmd_HELLO
+    
     def cmd_BYE(self, a):
         u, self.user = self.user, None
         return f'{u or "NOBODY"} LOG OFF  {time.strftime("%H.%M.%S.")}'
+    
     cmd_LOGOUT = cmd_BYE
+    
     def cmd_DATE(self, a): return time.strftime(' %y/%m/%d.')
     def cmd_TIME(self, a): return time.strftime(' %H.%M.%S.')
     def cmd_ECHO(self, a): return a
